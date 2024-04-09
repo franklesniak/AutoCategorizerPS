@@ -77,3 +77,87 @@ Install-Package -ProviderName NuGet -Name 'Accord.MachineLearning' -Force -Scope
 ```
 
 ## Usage
+
+The exact usage of these scripts will vary depending on the dataset.
+However, we provide guidance below on running each script in the process.
+For more information on specific syntax, each function has comment-based help -- so you may use Get-Help to get more information:
+
+```powershell
+Get-Help NameOfScript
+```
+
+### Convert-MicrosoftFormsExcelExportToQuestionResponseFormat.ps1
+
+It's common to use Microsoft Forms for survey data.
+However, Microsoft Forms survey results are not stored in the required one-line-per-question/answer format.
+
+Therefore, we include a script to convert Microsoft Forms output to the required CSV format.
+
+Example usage:
+
+```powershell
+$arrQuestions = @('Without mentioning the Client name or specific people, what made your most challenging project challenging?', 'Without mentioning the Client name or specific people, what did you like the most about your favorite project?', 'Imagine the worst project possible. What is it about the project that would make it the worst?')
+& '.\Convert-MicrosoftFormsExcelExportToQuestionResponseFormat.ps1' -InputExcelFilePath .\MicrosoftFormsSurveyExport.xlsx -ArrayOfQuestions $arrQuestions -OutputCSVPath .\ConvertedSurveyExport.csv
+```
+
+### Add-ContextToDataset.ps1
+
+If your dataset would benefit from additional context being added to it, we include a script that can facilitate it.
+
+Example usage:
+
+```powershell
+& '.\Add-ContextToDataset.ps1' -InputCSVPath .\ConvertedSurveyExport.csv -TextBeforeFieldName1 'On an employee engagement survey, a question was asked: ' -FieldName1 'Question' -TextBeforeFieldName2 ' #### In response, the employee wrote the following comment: ' -FieldName2 'Response' -AdditionalContextDataFieldName 'AdditionalContext' -OutputCSVPath .\ConvertedSurveyExport-WithContext.csv
+```
+
+### Convert-DataToAnonymizeAndRemoveJargon.ps1
+
+Next, if your dataset contains confidential data and/or jargon that is not generally understood outside of the context of your organization, you should perform a "find and replace" operation to scrub the dataset.
+
+To do this, you must prepare two CSVs:
+
+- One for case-sensitive replacements
+- One for case-insensitive replacements
+
+Each CSV must have two columns:
+
+- Find
+- Replace
+
+In both cases, when the text in the "find" column is found, it will be replaced with the text in the "Replace" column.
+
+Example usage:
+
+```powershell
+& '.\Convert-DataToAnonymizeAndRemoveJargon.ps1' -InputCSVPath .\ConvertedSurveyExport-WithContext.csv -CaseSensitiveReplacementKeywordsInputCSVPath '.\ContosoCaseSensitiveReplacements.csv' -CaseInsensitiveReplacementKeywordsInputCSVPath '.\ContosoCaseInsensitiveReplacements.csv' -DataFieldName 'AdditionalContext' -AnonymizedAndDeJargonizedDataFieldName 'AdditionalContext_Scrubbed' -OutputCSVPath .\ConvertedSurveyExport-Scrubbed.csv'
+```
+
+### Get-TextEmbeddingsUsingOpenAI.ps1
+
+Once the text data is prepared, the next step is to submit it to OpenAI's embeddings API to retrieve the embeddings (numerical representations of the text data).
+
+Example usage:
+
+```powershell
+Placeholder
+```
+
+### Invoke-KMeansClustering.ps1
+
+Fill in
+
+Example usage:
+
+```powershell
+Placeholder
+```
+
+### Get-TopicForEachCluster.ps1
+
+Fill in
+
+Example usage:
+
+```powershell
+Placeholder
+```
