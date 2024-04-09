@@ -1,5 +1,5 @@
 # Invoke-KMeansClustering.ps1
-# Version: 1.0.20240407.0
+# Version: 1.0.20240409.0
 
 <#
 .SYNOPSIS
@@ -1399,7 +1399,7 @@ foreach ($strPackageName in $arrNuGetPackages) {
 #endregion Load the Accord.NET NuGet Package DLLs #####################################
 
 # TODO: Dynamically set the number of clusters
-if ($null -eq $NumberOfClusters) {
+if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
     $intNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count)))
 } else {
     $intNumberOfClusters = $NumberOfClusters
