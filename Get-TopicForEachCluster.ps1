@@ -151,7 +151,7 @@ temperature will result in more deterministic embeddings, while a higher tempera
 will result in more random embeddings. The default temperature is 0.2.
 
 .EXAMPLE
-PS C:\> .\Get-TopicForEachCluster.ps1 -ClusterMetadataInputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata.csv' -UnstructuredTextDataInputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - With Embeddings.csv' -UnstructuredTextDataFieldNameContainingTextData 'Comment' -OutputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata with Topics.csv'
+PS C:\> .\Get-TopicForEachCluster.ps1 -ClusterMetadataInputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata.csv' -UnstructuredTextDataInputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - With Embeddings.csv' -UnstructuredTextDataFieldNameContainingTextData 'Comment' -OutputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata with Topics.csv' -EntraIdTenantId '00bdb152-4d83-4056-9dce-a1a9f0210908' -AzureSubscriptionId 'a59e5b39-14b7-40dc-8052-52c7baca6f81' -AzureKeyVaultName 'PowerShellSecrets' -SecretName 'OpenAIAPIKey'
 
 This example reads in a CSV file containing cluster metadata and another CSV file
 containing unstructured text data. The script then queries a large language model
