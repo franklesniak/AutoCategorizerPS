@@ -15,7 +15,7 @@ A series of scripts that perform zero-shot (untrained) data classification using
 ## Motivation
 
 Unstructured text data is inherently difficult to analyze.
-And when we think about use cases involving a large volume of data (comments on a survey, product or restaurant reviews, etc.), manually analyzing each text entry becomes unsustainable.
+And, when we think about use cases involving a large volume of data (comments on a survey, product or restaurant reviews, etc.), manually analyzing each text entry becomes unsustainable.
 
 Instead, it's helpful to understand the "key themes" of the data in these data sets.
 So, we utilize OpenAI's embeddings API, K-means Clustering, and ChatGPT to group similar data and surface the topic/category of each "cluster."
