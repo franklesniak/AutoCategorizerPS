@@ -139,25 +139,25 @@ Once the text data is prepared, the next step is to submit it to OpenAI's embedd
 Example usage:
 
 ```powershell
-Placeholder
+& '.\Get-TextEmbeddingsUsingOpenAI.ps1' -InputCSVPath .\ConvertedSurveyExport-Scrubbed.csv' -DataFieldNameToEmbed 'AdditionalContext_Scrubbed' -OutputCSVPath .\ConvertedSurveyExport-WithEmbeddings.csv -EntraIdTenantId '00bdb152-4d83-4056-9dce-a1a9f0210908' -AzureSubscriptionId 'a59e5b39-14b7-40dc-8052-52c7baca6f81' -AzureKeyVaultName 'PowerShellSecrets' -SecretName 'OpenAIAPIKey'
 ```
 
 ### Invoke-KMeansClustering.ps1
 
-Fill in
+With the embeddings retrieved, we can perform K-means Clustering to group similar text data together.
 
 Example usage:
 
 ```powershell
-Placeholder
+& '.\Invoke-KMeansClustering.ps1' -InputCSVPath .\ConvertedSurveyExport-WithEmbeddings.csv -DataFieldNameContainingEmbeddings 'Embeddings' -NumberOfClusters 10 -OutputCSVPath .\ConvertedSurveyExport-ClusterMetadata.csv
 ```
 
 ### Get-TopicForEachCluster.ps1
 
-Fill in
+Finally, now that we have similar data clustered together, we can use the "most representative" item(s) from each cluster to determine the topic/category/main theme of each cluster.
 
 Example usage:
 
 ```powershell
-Placeholder
+& '.\Get-TopicForEachCluster.ps1' -ClusterMetadataInputCSVPath .\ConvertedSurveyExport-ClusterMetadata.csv -UnstructuredTextDataInputCSVPath .\ConvertedSurveyExport-WithEmbeddings.csv -UnstructuredTextDataFieldNameContainingTextData 'AdditionalContext_Scrubbed' -OutputCSVPath .\ConvertedSurveyExport-ClusterMetadata-WithTopics.csv -EntraIdTenantId '00bdb152-4d83-4056-9dce-a1a9f0210908' -AzureSubscriptionId 'a59e5b39-14b7-40dc-8052-52c7baca6f81' -AzureKeyVaultName 'PowerShellSecrets' -SecretName 'OpenAIAPIKey'
 ```
