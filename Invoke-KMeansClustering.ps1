@@ -1,5 +1,5 @@
 # Invoke-KMeansClustering.ps1
-# Version: 1.0.20240409.0
+# Version: 2.0.20240422.0
 
 <#
 .SYNOPSIS
@@ -33,9 +33,9 @@ Specifies the number of data points to include in the output CSV file that are c
 to the center of each cluster. The default value is 5.
 
 .PARAMETER NumberOfClusters
-Specifies the number of clusters that you want the function to use. The default value is
-the square-root of $NumberOfDataPoints, rounded up, where $NumberOfDataPoints is the
-number of rows in the input CSV file.
+Optional parameter; allows the user to specify the number of clusters they want the
+script to use. When this parameter is not specified, the script will use the "elbow
+method" to determine the optimal number of clusters.
 
 .EXAMPLE
 PS C:\> .\Invoke-KMeansClustering.ps1 -InputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - With Embeddings.csv' -DataFieldNameContainingEmbeddings 'Embeddings' -OutputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata.csv'
@@ -75,7 +75,8 @@ param (
     [Parameter(Mandatory = $false)][string]$DataFieldNameContainingEmbeddings = 'Embeddings',
     [Parameter(Mandatory = $true)][string]$OutputCSVPath,
     [Parameter(Mandatory = $false)][int]$NSizeForMostRepresentativeDataPoints = 5,
-    [Parameter(Mandatory = $false)][int]$NumberOfClusters
+    [Parameter(Mandatory = $false)][ValidateScript({ ($_ -ge 2) -or ($_ -eq 0) })][int]$NumberOfClusters,
+    [Parameter(Mandatory = $false)][switch]$DoNotCalculateExtendedStatistics
 )
 
 function Get-PSVersion {
@@ -1246,10 +1247,462 @@ function Measure-EuclideanDistance($Point1, $Point2) {
     return [Math]::Sqrt($doubleSum)
 }
 
+function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
+    param (
+        [Parameter(Mandatory = $true)][ref]$ReferenceToHashtableOfNumberOfClustersToArtifacts,
+        [Parameter(Mandatory = $true)][ValidateScript({ $_ -ge 1 })][int]$NumberOfClusters,
+        [Parameter(Mandatory = $true)][ref]$ReferenceToTwoDimensionalArrayOfEmbeddings,
+        [Parameter(Mandatory = $true)][ref]$ReferenceToHashtableOfEuclideanDistancesBetweenItems,
+        [Parameter(Mandatory = $true)][ref]$ReferenceToCentroidOverWholeDataset,
+        [Parameter(Mandatory = $true)][switch]$DoNotCalculateExtendedStatistics
+    )
+
+    if (($ReferenceToHashtableOfNumberOfClustersToArtifacts.Value).ContainsKey($NumberOfClusters) -eq $true) {
+        # The specified number of clusters has already been processed
+        return
+    }
+
+    $boolCalculateExtendedStatistics = $true
+    if ($null -ne $DoNotCalculateExtendedStatistics) {
+        if ($DoNotCalculateExtendedStatistics.IsPresent -eq $true) {
+            $boolCalculateExtendedStatistics = $false
+        }
+    }
+
+    $PSCustomObjectKMeansArtifacts = New-Object -TypeName 'PSCustomObject'
+    $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'NumberOfClusters' -Value $NumberOfClusters
+    $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'HashtableClustersToItemsAndDistances' -Value $null
+    $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'WithinClusterSumOfSquares' -Value $null
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'SilhouetteScore' -Value $null
+        $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'DaviesBouldinIndex' -Value $null
+        $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'CalinskiHarabaszIndex' -Value $null
+    }
+
+    $kmeans = New-Object -TypeName 'Accord.MachineLearning.KMeans' -ArgumentList @($NumberOfClusters)
+    [void]($kmeans.Learn($ReferenceToTwoDimensionalArrayOfEmbeddings.Value))
+    $arrClusterNumberAssignmentsForEachItem = $kmeans.Clusters.Decide($ReferenceToTwoDimensionalArrayOfEmbeddings.Value)
+
+    #region Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
+    Write-Debug ('Creating hashtable for efficient lookup of cluster # to associated items...')
+    # Create a hashtable for easier lookup of cluster number to comment index number
+    $hashtableClustersToItems = @{}
+    if ($versionPS -ge ([version]'6.0')) {
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $hashtableClustersToItems.Add($intCounterA, (New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'))
+        }
+    } else {
+        # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+        # of a generic list
+        # TODO: Fill in rationale for this
+        #
+        # Technically, in older versions of PowerShell, the type in the ArrayList will
+        # be a PSObject; but that does not matter for our purposes.
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $hashtableClustersToItems.Add($intCounterA, (New-Object -TypeName 'System.Collections.ArrayList'))
+        }
+    }
+
+    # Populate the hashtable of cluster number -> associated items
+    $intCounterMax = $arrClusterNumberAssignmentsForEachItem.Length
+    if ($versionPS -ge ([version]'6.0')) {
+        # PowerShell v6.0 or newer
+        for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
+            $intTopicNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
+
+            # Add the updated object to the list
+            ($hashtableClustersToItems.Item($intTopicNumber)).Add($intCounterA)
+        }
+    } else {
+        # Windows PowerShell 5.0 or 5.1
+        for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
+            $intTopicNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
+
+            # Add the updated object to the list
+            [void](($hashtableClustersToItems.Item($intTopicNumber)).Add($intCounterA))
+        }
+    }
+    #endregion Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
+
+    #region Create Hashtable Including Euclidian Distance from Item to Centroid ########
+    Write-Debug ('Creating hashtable including Euclidian distance from each item to its cluster centroid...')
+    $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances = @{}
+    if ($versionPS -ge ([version]'6.0')) {
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Add($intCounterA, (New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'))
+        }
+    } else {
+        # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+        # of a generic list
+        # TODO: Fill in rationale for this
+        #
+        # Technically, in older versions of PowerShell, the type in the ArrayList will
+        # be a PSObject; but that does not matter for our purposes.
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Add($intCounterA, (New-Object -TypeName 'System.Collections.ArrayList'))
+        }
+    }
+
+    #region Collect Stats/Objects Needed for Writing Progress ##########################
+    $intProgressReportingFrequency = 50
+    $intTotalItems = $arrInputCSV.Count
+    $strProgressActivity = 'Performing k-means clustering'
+    $strProgressStatus = 'Calculating distances from items to cluster centroids'
+    $strProgressCurrentOperationPrefix = 'Processing item'
+    $timedateStartOfLoop = Get-Date
+    # Create a queue for storing lagging timestamps for ETA calculation
+    $queueLaggingTimestamps = New-Object System.Collections.Queue
+    $queueLaggingTimestamps.Enqueue($timedateStartOfLoop)
+    #endregion Collect Stats/Objects Needed for Writing Progress ##########################
+
+    $intCounterLoop = 0
+    if ($versionPS -ge ([version]'6.0')) {
+        # PowerShell v6.0 or newer
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            if ($NumberOfClusters -eq 1) {
+                $ReferenceToCentroidOverWholeDataset.Value = ($kmeans.Clusters.Centroids)[$intCounterA]
+            }
+            $arrCentroid = ($kmeans.Clusters.Centroids)[$intCounterA]
+            foreach ($intItemIndex in $hashtableClustersToItems.Item($intCounterA)) {
+                #region Report Progress ########################################################
+                $intCurrentItemNumber = $intCounterLoop + 1 # Forward direction for loop
+                if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
+                    # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
+                    $timeDateLagging = $queueLaggingTimestamps.Dequeue()
+                    $datetimeNow = Get-Date
+                    $timespanTimeDelta = $datetimeNow - $timeDateLagging
+                    $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
+                    $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
+                    $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
+                    Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
+                }
+                #endregion Report Progress ########################################################
+
+                # Centroid: $arrCentroid
+                # Embeddings for this item: @($arrEmbeddings[$intItemIndex])
+                # Distance: Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
+                $doubleDistance = Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
+
+                $psobject = New-Object PSCustomObject
+                $psobject | Add-Member -MemberType NoteProperty -Name 'ItemNumber' -Value $intItemIndex
+                $psobject | Add-Member -MemberType NoteProperty -Name 'DistanceFromCentroid' -Value $doubleDistance
+
+                # Add the updated object to the list
+                ($PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA)).Add($psobject)
+
+                #region Post-Loop Progress Reporting ###########################################
+                if ($intCurrentItemNumber -eq $intTotalItems) {
+                    Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
+                }
+                if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
+                    # Add lagging timestamp to queue
+                    $queueLaggingTimestamps.Enqueue((Get-Date))
+                }
+                # Increment counter
+                $intCounterLoop++
+                #endregion Post-Loop Progress Reporting ###########################################
+            }
+        }
+    } else {
+        # PowerShell 5.0 or 5.1
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $arrCentroid = ($kmeans.Clusters.Centroids)[$intCounterA]
+            foreach ($intItemIndex in $hashtableClustersToItems.Item($intCounterA)) {
+                #region Report Progress ########################################################
+                $intCurrentItemNumber = $intCounterLoop + 1 # Forward direction for loop
+                if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
+                    # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
+                    $timeDateLagging = $queueLaggingTimestamps.Dequeue()
+                    $datetimeNow = Get-Date
+                    $timespanTimeDelta = $datetimeNow - $timeDateLagging
+                    $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
+                    $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
+                    $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
+                    Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
+                }
+                #endregion Report Progress ########################################################
+
+                # Centroid: $arrCentroid
+                # Embeddings for this item: @($arrEmbeddings[$intItemIndex])
+                # Distance: Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
+                $doubleDistance = Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
+
+                $psobject = New-Object PSCustomObject
+                $psobject | Add-Member -MemberType NoteProperty -Name 'ItemNumber' -Value $intItemIndex
+                $psobject | Add-Member -MemberType NoteProperty -Name 'DistanceFromCentroid' -Value $doubleDistance
+
+                # Add the updated object to the list
+                [void](($PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA)).Add($psobject))
+
+                #region Post-Loop Progress Reporting ###########################################
+                if ($intCurrentItemNumber -eq $intTotalItems) {
+                    Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
+                }
+                if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
+                    # Add lagging timestamp to queue
+                    $queueLaggingTimestamps.Enqueue((Get-Date))
+                }
+                # Increment counter
+                $intCounterLoop++
+                #endregion Post-Loop Progress Reporting ###########################################
+            }
+        }
+    }
+    #endregion Create Hashtable Including Euclidian Distance from Item to Centroid ########
+
+    #region Create Hashtable of Silhouette Scores for Each Item #########################
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        Write-Debug ('Creating hashtable of silhouette scores for each item...')
+        $hashtableItemsToSilhouetteScores = @{}
+
+        $intCounterMax = $ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length
+
+        #region Collect Stats/Objects Needed for Writing Progress ##########################
+        $intProgressReportingFrequency = 1
+        $intTotalItems = $intCounterMax
+        $strProgressActivity = 'Performing k-means clustering'
+        $strProgressStatus = 'Calculating silhouette scores for each item in the dataset'
+        $strProgressCurrentOperationPrefix = 'Processing item'
+        $timedateStartOfLoop = Get-Date
+        # Create a queue for storing lagging timestamps for ETA calculation
+        $queueLaggingTimestamps = New-Object System.Collections.Queue
+        $queueLaggingTimestamps.Enqueue($timedateStartOfLoop)
+        #endregion Collect Stats/Objects Needed for Writing Progress ##########################
+
+        for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
+            $intClusterNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
+
+            #region Report Progress ########################################################
+            $intCurrentItemNumber = $intCounterA + 1 # Forward direction for loop
+            if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
+                # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
+                $timeDateLagging = $queueLaggingTimestamps.Dequeue()
+                $datetimeNow = Get-Date
+                $timespanTimeDelta = $datetimeNow - $timeDateLagging
+                $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
+                $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
+                $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
+                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
+            }
+            #endregion Report Progress ########################################################
+
+            # Get average distance to items in cluster (a)
+            $doubleDistanceToItemsInCluster = [double]0
+            $intCountOfItemsInCluster = 0
+            $hashtableClustersToItems.Item($intClusterNumber) | Where-Object { $_ -ne $intCounterA } | ForEach-Object {
+                $intItemIndex = $_
+                $intCountOfItemsInCluster++
+
+                # Calculate or look up Euclidean distance
+                $intMinimumIndexNumber = [Math]::Min($intCounterA, $intItemIndex)
+                $intMaximumIndexNumber = [Math]::Max($intCounterA, $intItemIndex)
+                $boolCalculateEuclideanDistance = $true
+                if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.ContainsKey($intMinimumIndexNumber) -eq $true) {
+                    if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).ContainsKey($intMaximumIndexNumber) -eq $true) {
+                        $doubleEuclideanDistance = $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).Item($intMaximumIndexNumber)
+                        $boolCalculateEuclideanDistance = $false
+                    }
+                }
+                if ($boolCalculateEuclideanDistance -eq $true) {
+                    $doubleEuclideanDistance = Measure-EuclideanDistance -Point1 @($arrEmbeddings[$intCounterA]) -Point2 @($arrEmbeddings[$intItemIndex])
+                    if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.ContainsKey($intMinimumIndexNumber) -eq $false) {
+                        $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Add($intMinimumIndexNumber, @{})
+                    }
+                    $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).Add($intMaximumIndexNumber, $doubleEuclideanDistance)
+                }
+
+                # Add it to the total
+                $doubleDistanceToItemsInCluster += $doubleEuclideanDistance
+            }
+            if ($intCountOfItemsInCluster -gt 0) {
+                $doubleAverageDistanceToItemsInCluster = $doubleDistanceToItemsInCluster / $intCountOfItemsInCluster
+            } else {
+                $doubleAverageDistanceToItemsInCluster = [double]0
+            }
+
+            # Get minimum average distance to items in other clusters (b)
+            $doubleMinimumAverageDistanceToItemsInOtherClusters = [double]::MaxValue
+            for ($intCounterB = 0; $intCounterB -lt $NumberOfClusters; $intCounterB++) {
+                if ($intCounterB -ne $intClusterNumber) {
+                    $doubleDistanceToItemsInOtherCluster = [double]0
+                    $intCountOfItemsInOtherCluster = 0
+                    $hashtableClustersToItems.Item($intCounterB) | ForEach-Object {
+                        $intItemIndex = $_
+                        $intCountOfItemsInOtherCluster++
+
+                        # Calculate or look up Euclidean distance
+                        $intMinimumIndexNumber = [Math]::Min($intCounterA, $intItemIndex)
+                        $intMaximumIndexNumber = [Math]::Max($intCounterA, $intItemIndex)
+                        $boolCalculateEuclideanDistance = $true
+                        if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.ContainsKey($intMinimumIndexNumber) -eq $true) {
+                            if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).ContainsKey($intMaximumIndexNumber) -eq $true) {
+                                $doubleEuclideanDistance = $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).Item($intMaximumIndexNumber)
+                                $boolCalculateEuclideanDistance = $false
+                            }
+                        }
+                        if ($boolCalculateEuclideanDistance -eq $true) {
+                            $doubleEuclideanDistance = Measure-EuclideanDistance -Point1 @($arrEmbeddings[$intCounterA]) -Point2 @($arrEmbeddings[$intItemIndex])
+                            if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.ContainsKey($intMinimumIndexNumber) -eq $false) {
+                                $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Add($intMinimumIndexNumber, @{})
+                            }
+                            $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).Add($intMaximumIndexNumber, $doubleEuclideanDistance)
+                        }
+
+                        # Add it to the total
+                        $doubleDistanceToItemsInOtherCluster += $doubleEuclideanDistance
+                    }
+                    if ($intCountOfItemsInOtherCluster -gt 0) {
+                        $doubleAverageDistanceToItemsInOtherCluster = $doubleDistanceToItemsInOtherCluster / $intCountOfItemsInOtherCluster
+                    } else {
+                        $doubleAverageDistanceToItemsInOtherCluster = [double]0
+                    }
+                    if ($doubleAverageDistanceToItemsInOtherCluster -lt $doubleMinimumAverageDistanceToItemsInOtherClusters) {
+                        $doubleMinimumAverageDistanceToItemsInOtherClusters = $doubleAverageDistanceToItemsInOtherCluster
+                    }
+                }
+            }
+
+            $doubleSilhouetteScore = ($doubleMinimumAverageDistanceToItemsInOtherClusters - $doubleAverageDistanceToItemsInCluster) / [Math]::Max($doubleMinimumAverageDistanceToItemsInOtherClusters, $doubleAverageDistanceToItemsInCluster)
+            $hashtableItemsToSilhouetteScores.Add($intCounterA, $doubleSilhouetteScore)
+
+            #region Post-Loop Progress Reporting ###########################################
+            if ($intCurrentItemNumber -eq $intTotalItems) {
+                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
+            }
+            if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
+                # Add lagging timestamp to queue
+                $queueLaggingTimestamps.Enqueue((Get-Date))
+            }
+            # Increment counter
+            $intCounterLoop++
+            #endregion Post-Loop Progress Reporting ###########################################
+        }
+    }
+    #endregion Create Hashtable of Silhouette Scores for Each Item #########################
+
+    #region Create Hashtable of Cluster Number to Averaged Distance from Each Item to its Centroid in that Cluster
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $hashtableClusterNumberToAverageDistanceFromEachItemToItsClusterCentroid = @{}
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $doubleTotalDistance = [double]0
+            $intNumberOfItemsInCluster = $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA).Count
+            for ($intCounterB = 0; $intCounterB -lt $intNumberOfItemsInCluster; $intCounterB++) {
+                $doubleTotalDistance += ($PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA))[$intCounterB].DistanceFromCentroid
+            }
+            $hashtableClusterNumberToAverageDistanceFromEachItemToItsClusterCentroid.Add($intCounterA, $doubleTotalDistance / $intNumberOfItemsInCluster)
+        }
+    }
+    #endregion Create Hashtable of Cluster Number to Averaged Distance from Each Item to its Centroid in that Cluster
+
+    #region Create Hashtable of Distances Between Each Centroid and All Other Centroids
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $hashtableClusterNumberToDistancesToOtherCentroids = @{}
+        for ($intCounterA = 0; $intCounterA -lt ($NumberOfClusters - 1); $intCounterA++) {
+            $hashtableClusterNumberToDistancesToOtherCentroids.Add($intCounterA, @{})
+            for ($intCounterB = $intCounterA + 1; $intCounterB -lt $NumberOfClusters; $intCounterB++) {
+                $doubleDistance = Measure-EuclideanDistance -Point1 ($kmeans.Clusters.Centroids)[$intCounterA] -Point2 ($kmeans.Clusters.Centroids)[$intCounterB]
+                $hashtableClusterNumberToDistancesToOtherCentroids.Item($intCounterA).Add($intCounterB, $doubleDistance)
+            }
+        }
+    }
+    #endregion Create Hashtable of Distances Between Each Centroid and All Other Centroids
+
+    #region Create Hashtable Of Average Distance for Each Cluster and Compute WCSS #
+    Write-Debug ('Creating hashtable of average distance for each cluster and computing within-cluster sum of squares along the way...')
+    $doubleWCSS = [double]0
+    for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+        $doubleSum = [double]0
+        foreach ($psobject in $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA)) {
+            $doubleWCSS += [math]::Pow($psobject.DistanceFromCentroid, 2)
+            $doubleSum += $psobject.DistanceFromCentroid
+        }
+    }
+    $PSCustomObjectKMeansArtifacts.WithinClusterSumOfSquares = $doubleWCSS
+    #endregion Create Hashtable Of Average Distance for Each Cluster and Compute WCSS #
+
+    #region Calculate Between Cluster Scatter
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $doubleBetweenClusterScatter = [double]0
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $doubleEuclideanDistance = Measure-EuclideanDistance -Point1 ($kmeans.Clusters.Centroids)[$intCounterA] -Point2 $ReferenceToCentroidOverWholeDataset.Value
+            $intClusterSize = $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA).Count
+            $doubleBetweenClusterScatter += $intClusterSize * [math]::Pow($doubleEuclideanDistance, 2)
+        }
+    }
+    #endregion Calculate Between Cluster Scatter
+
+    #region Calculate Within Cluster Scatter
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $doubleWithinClusterScatter = $PSCustomObjectKMeansArtifacts.WithinClusterSumOfSquares
+    }
+    #endregion Calculate Within Cluster Scatter
+
+    #region Compute Silhouette Score ###############################################
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        Write-Debug ('Computing silhouette score...')
+        if ($NumberOfClusters -gt 1) {
+            $doubleSilhouetteScore = [double]0
+            $intCounterMax = $ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length
+            for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
+                $doubleSilhouetteScore += $hashtableItemsToSilhouetteScores.Item($intCounterA)
+            }
+            $doubleSilhouetteScore /= $intCounterMax
+            $PSCustomObjectKMeansArtifacts.SilhouetteScore = $doubleSilhouetteScore
+        }
+    }
+    #endregion Compute Silhouette Score ###############################################
+
+    #region Compute Davies-Bouldin Index ###########################################
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        Write-Debug ('Computing Davies-Bouldin index...')
+        if ($NumberOfClusters -ge 2) {
+            $doubleDBIndex = [double]0
+            for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+                $doubleMax = [double]0
+                for ($intCounterB = 0; $intCounterB -lt $NumberOfClusters; $intCounterB++) {
+                    if ($intCounterA -ne $intCounterB) {
+                        $intMinimumClusterNumber = [Math]::Min($intCounterA, $intCounterB)
+                        $intMaximumClusterNumber = [Math]::Max($intCounterA, $intCounterB)
+                        $doubleValue = ($hashtableClusterNumberToAverageDistanceFromEachItemToItsClusterCentroid.Item($intCounterA) + $hashtableClusterNumberToAverageDistanceFromEachItemToItsClusterCentroid.Item($intCounterB)) / $hashtableClusterNumberToDistancesToOtherCentroids.Item($intMinimumClusterNumber).Item($intMaximumClusterNumber)
+                        if ($doubleValue -gt $doubleMax) {
+                            $doubleMax = $doubleValue
+                        }
+                    }
+                }
+                $doubleDBIndex += $doubleMax
+            }
+            $doubleDBIndex /= $NumberOfClusters
+            $PSCustomObjectKMeansArtifacts.DaviesBouldinIndex = $doubleDBIndex
+        }
+    }
+    #endregion Compute Davies-Bouldin Index ###########################################
+
+    #region Compute Calinski-Harabasz Index #########################################
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        Write-Debug ('Computing Calinski-Harabasz index...')
+        if ($NumberOfClusters -ge 2) {
+            $doubleNumerator = $doubleBetweenClusterScatter / ($NumberOfClusters - 1)
+            $doubleDenominator = $doubleWithinClusterScatter / (($ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length) - $NumberOfClusters)
+            $doubleCHIndex = $doubleNumerator / $doubleDenominator
+            $PSCustomObjectKMeansArtifacts.CalinskiHarabaszIndex = $doubleCHIndex
+        }
+    }
+    #endregion Compute Calinski-Harabasz Index #########################################
+
+    $ReferenceToHashtableOfNumberOfClustersToArtifacts.Value.Add($NumberOfClusters, $PSCustomObjectKMeansArtifacts)
+}
+
 # TODO: Figure out how to use Microsoft.ML instead of Accord, at least for PowerShell
 # v6.0 and later. Microsoft.ML is actively maintained.
 
 $versionPS = Get-PSVersion
+
+$boolDoNotCalculateExtendedStatistics = $false
+if ($null -ne $DoNotCalculateExtendedStatistics) {
+    if ($DoNotCalculateExtendedStatistics.IsPresent -eq $true) {
+        $boolDoNotCalculateExtendedStatistics = $true
+    }
+}
 
 #region Quit if PowerShell Version is Unsupported ##################################
 if ($versionPS -lt [version]'5.0') {
@@ -1398,180 +1851,59 @@ foreach ($strPackageName in $arrNuGetPackages) {
 }
 #endregion Load the Accord.NET NuGet Package DLLs #####################################
 
-# TODO: Dynamically set the number of clusters
+# Determine upper and lower bounds for the number of clusters
 if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
-    $intNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count)))
-} else {
-    $intNumberOfClusters = $NumberOfClusters
-}
-
-$kmeans = New-Object -TypeName 'Accord.MachineLearning.KMeans' -ArgumentList @($intNumberOfClusters)
-[void]($kmeans.Learn($arrEmbeddings))
-$arrClusterNumberAssignmentsForEachItem = $kmeans.Clusters.Decide($arrEmbeddings)
-
-#region Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
-Write-Debug ('Creating hashtable for efficient lookup of cluster # to associated items...')
-# Create a hashtable for easier lookup of cluster number to comment index number
-$hashtableClustersToItems = @{}
-if ($versionPS -ge ([version]'6.0')) {
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $hashtableClustersToItems.Add($intCounterA, (New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'))
+    if ($arrInputCSV.Count -lt 1) {
+        $intMinNumberOfClusters = $arrInputCSV.Count
+    } else {
+        $intMinNumberOfClusters = 1
+    }
+    $intMaxNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count) * 1.2))
+    if ($intMaxNumberOfClusters -gt $arrInputCSV.Count) {
+        $intMaxNumberOfClusters = $arrInputCSV.Count
     }
 } else {
-    # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
-    # of a generic list
-    # TODO: Fill in rationale for this
-    #
-    # Technically, in older versions of PowerShell, the type in the ArrayList will
-    # be a PSObject; but that does not matter for our purposes.
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $hashtableClustersToItems.Add($intCounterA, (New-Object -TypeName 'System.Collections.ArrayList'))
-    }
+    $intMinNumberOfClusters = $NumberOfClusters
+    $intMaxNumberOfClusters = $NumberOfClusters
 }
 
-# Populate the hashtable of cluster number -> associated items
-$intCounterMax = $arrClusterNumberAssignmentsForEachItem.Length
-if ($versionPS -ge ([version]'6.0')) {
-    # PowerShell v6.0 or newer
-    for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
-        $intTopicNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
+$hashtableKToClusterArtifacts = @{}
+$hashtableEuclideanDistancesBetweenItems = @{}
+$arrCentroidOverWholeDataset = @()
 
-        # Add the updated object to the list
-        ($hashtableClustersToItems.Item($intTopicNumber)).Add($intCounterA)
+if ($intMinNumberOfClusters -ne 1) {
+    if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+        # We need to run it once for a single cluster to get the centroid for the whole
+        # data set
+        $hashtableKToClusterArtifactsTEMP = @{}
+        Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifactsTEMP) -NumberOfClusters 1 -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset)
     }
-} else {
-    # Windows PowerShell 5.0 or 5.1
-    for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
-        $intTopicNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
 
-        # Add the updated object to the list
-        [void](($hashtableClustersToItems.Item($intTopicNumber)).Add($intCounterA))
-    }
-}
-#endregion Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
-
-#region Create Hashtable Including Euclidian Distance from Item to Centroid ########
-Write-Debug ('Creating hashtable including Euclidian distance from each item to its cluster centroid...')
-$hashtableClustersToItemsAndDistances = @{}
-if ($versionPS -ge ([version]'6.0')) {
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $hashtableClustersToItemsAndDistances.Add($intCounterA, (New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'))
-    }
-} else {
-    # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
-    # of a generic list
-    # TODO: Fill in rationale for this
-    #
-    # Technically, in older versions of PowerShell, the type in the ArrayList will
-    # be a PSObject; but that does not matter for our purposes.
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $hashtableClustersToItemsAndDistances.Add($intCounterA, (New-Object -TypeName 'System.Collections.ArrayList'))
-    }
-}
-
-#region Collect Stats/Objects Needed for Writing Progress ##########################
-$intProgressReportingFrequency = 50
-$intTotalItems = $arrInputCSV.Count
-$strProgressActivity = 'Performing k-means clustering'
-$strProgressStatus = 'Calculating distances from items to cluster centroids'
-$strProgressCurrentOperationPrefix = 'Processing item'
-$timedateStartOfLoop = Get-Date
-# Create a queue for storing lagging timestamps for ETA calculation
-$queueLaggingTimestamps = New-Object System.Collections.Queue
-$queueLaggingTimestamps.Enqueue($timedateStartOfLoop)
-#endregion Collect Stats/Objects Needed for Writing Progress ##########################
-
-$intCounterLoop = 0
-if ($versionPS -ge ([version]'6.0')) {
-    # PowerShell v6.0 or newer
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $arrCentroid = ($kmeans.Clusters.Centroids)[$intCounterA]
-        foreach ($intItemIndex in $hashtableClustersToItems.Item($intCounterA)) {
-            #region Report Progress ########################################################
-            $intCurrentItemNumber = $intCounterLoop + 1 # Forward direction for loop
-            if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
-                # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
-                $timeDateLagging = $queueLaggingTimestamps.Dequeue()
-                $datetimeNow = Get-Date
-                $timespanTimeDelta = $datetimeNow - $timeDateLagging
-                $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
-                $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
-                $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
-                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
-            }
-            #endregion Report Progress ########################################################
-
-            # Centroid: $arrCentroid
-            # Embeddings for this item: @($arrEmbeddings[$intItemIndex])
-            # Distance: Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
-            $doubleDistance = Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
-
-            $psobject = New-Object PSCustomObject
-            $psobject | Add-Member -MemberType NoteProperty -Name 'ItemNumber' -Value $intItemIndex
-            $psobject | Add-Member -MemberType NoteProperty -Name 'DistanceFromCentroid' -Value $doubleDistance
-
-            # Add the updated object to the list
-            ($hashtableClustersToItemsAndDistances.Item($intCounterA)).Add($psobject)
-
-            #region Post-Loop Progress Reporting ###########################################
-            if ($intCurrentItemNumber -eq $intTotalItems) {
-                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
-            }
-            if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
-                # Add lagging timestamp to queue
-                $queueLaggingTimestamps.Enqueue((Get-Date))
-            }
-            # Increment counter
-            $intCounterLoop++
-            #endregion Post-Loop Progress Reporting ###########################################
+    # Now we can run it for the specified range of clusters
+    if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+        for ($intK = $intMinNumberOfClusters; $intK -le $intMaxNumberOfClusters; $intK++) {
+            Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifacts) -NumberOfClusters $intK -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset)
+        }
+    } else {
+        # $boolDoNotCalculateExtendedStatistics is $true
+        for ($intK = $intMinNumberOfClusters; $intK -le $intMaxNumberOfClusters; $intK++) {
+            Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifacts) -NumberOfClusters $intK -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset) -DoNotCalculateExtendedStatistics
         }
     }
 } else {
-    # PowerShell 5.0 or 5.1
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $arrCentroid = ($kmeans.Clusters.Centroids)[$intCounterA]
-        foreach ($intItemIndex in $hashtableClustersToItems.Item($intCounterA)) {
-            #region Report Progress ########################################################
-            $intCurrentItemNumber = $intCounterLoop + 1 # Forward direction for loop
-            if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
-                # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
-                $timeDateLagging = $queueLaggingTimestamps.Dequeue()
-                $datetimeNow = Get-Date
-                $timespanTimeDelta = $datetimeNow - $timeDateLagging
-                $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
-                $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
-                $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
-                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
-            }
-            #endregion Report Progress ########################################################
-
-            # Centroid: $arrCentroid
-            # Embeddings for this item: @($arrEmbeddings[$intItemIndex])
-            # Distance: Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
-            $doubleDistance = Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
-
-            $psobject = New-Object PSCustomObject
-            $psobject | Add-Member -MemberType NoteProperty -Name 'ItemNumber' -Value $intItemIndex
-            $psobject | Add-Member -MemberType NoteProperty -Name 'DistanceFromCentroid' -Value $doubleDistance
-
-            # Add the updated object to the list
-            [void](($hashtableClustersToItemsAndDistances.Item($intCounterA)).Add($psobject))
-
-            #region Post-Loop Progress Reporting ###########################################
-            if ($intCurrentItemNumber -eq $intTotalItems) {
-                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
-            }
-            if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
-                # Add lagging timestamp to queue
-                $queueLaggingTimestamps.Enqueue((Get-Date))
-            }
-            # Increment counter
-            $intCounterLoop++
-            #endregion Post-Loop Progress Reporting ###########################################
+    if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+        for ($intK = $intMinNumberOfClusters; $intK -le $intMaxNumberOfClusters; $intK++) {
+            Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifacts) -NumberOfClusters $intK -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset)
+        }
+    } else {
+        # $boolDoNotCalculateExtendedStatistics is $true
+        for ($intK = $intMinNumberOfClusters; $intK -le $intMaxNumberOfClusters; $intK++) {
+            Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifacts) -NumberOfClusters $intK -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset) -DoNotCalculateExtendedStatistics
         }
     }
 }
-#endregion Create Hashtable Including Euclidian Distance from Item to Centroid ########
+
+return # temp
 
 #region Generate Output CSV ########################################################
 Write-Debug 'Generating output CSV...'
