@@ -1884,7 +1884,7 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
         [Parameter(Mandatory = $true)][ref]$ReferenceToTwoDimensionalArrayOfEmbeddings,
         [Parameter(Mandatory = $true)][ref]$ReferenceToHashtableOfEuclideanDistancesBetweenItems,
         [Parameter(Mandatory = $true)][ref]$ReferenceToCentroidOverWholeDataset,
-        [Parameter(Mandatory = $true)][switch]$DoNotCalculateExtendedStatistics
+        [Parameter(Mandatory = $false)][switch]$DoNotCalculateExtendedStatistics
     )
 
     function Get-PSVersion {
