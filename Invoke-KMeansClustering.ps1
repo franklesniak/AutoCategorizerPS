@@ -2685,53 +2685,59 @@ if ($intCounterAMax -ge 1) {
 #endregion Calculate WCSS first and second derivative #################################
 
 #region Rank the number of clusters to bias toward more clusters ###################
-for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
-    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'NumberOfClustersRank' -Value $null
-}
-
-$boolIdealPointFound = $false
-$intUpperExpectedNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count)))
-for ($intCounterA = $intCounterAMax; $intCounterA -ge 0; $intCounterA--) {
-    if ($arrKeyStatistics[$intCounterA].NumberOfClusters -eq $intUpperExpectedNumberOfClusters) {
-        $boolIdealPointFound = $true
-        $intCounterB = $intCounterA
-        break
+$boolBiasedNumberOfClusters = $false
+$doubleMaxSihlouetteScore = $arrKeyStatistics | Sort-Object -Property 'SilhouetteScore' -Descending | Select-Object -First 1 -ExpandProperty 'SilhouetteScore'
+if ($doubleMaxSihlouetteScore -lt 0.4) {
+    # The data may not be well-clustered; rank the number of clusters to bias toward more clusters
+    $boolBiasedNumberOfClusters = $true
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'NumberOfClustersRank' -Value $null
     }
-}
 
-if ($boolIdealPointFound -eq $false) {
-    Write-Warning 'Could not find the ideal maximum point for the number of clusters; using the last point instead.'
-    $intCounterB = $intCounterAMax
-}
-
-$intCounterA = 1
-$arrKeyStatistics[$intCounterB].NumberOfClustersRank = $intCounterA
-$intLowestClusterProcessed = $intCounterB
-$intCounterA++
-
-for ($intCounterC = 0; ($intCounterB + $intCounterC + 1) -lt $arrKeyStatistics.Count; $intCounterC++) {
-    if ($intCounterB - ($intCounterC * 3) - 1 -ge 0) {
-        $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 1].NumberOfClustersRank = $intCounterA
-        $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 1
-        $intCounterA++
+    $boolIdealPointFound = $false
+    $intUpperExpectedNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count)))
+    for ($intCounterA = $intCounterAMax; $intCounterA -ge 0; $intCounterA--) {
+        if ($arrKeyStatistics[$intCounterA].NumberOfClusters -eq $intUpperExpectedNumberOfClusters) {
+            $boolIdealPointFound = $true
+            $intCounterB = $intCounterA
+            break
+        }
     }
-    if ($intCounterB - ($intCounterC * 3) - 2 -ge 0) {
-        $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 2].NumberOfClustersRank = $intCounterA
-        $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 2
-        $intCounterA++
-    }
-    if ($intCounterB - ($intCounterC * 3) - 3 -ge 0) {
-        $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 3].NumberOfClustersRank = $intCounterA
-        $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 3
-        $intCounterA++
-    }
-    $arrKeyStatistics[$intCounterB + $intCounterC + 1].NumberOfClustersRank = $intCounterA
-    $intCounterA++
-}
 
-for ($intCounterB = $intLowestClusterProcessed - 1; $intCounterB -ge 0; $intCounterB--) {
+    if ($boolIdealPointFound -eq $false) {
+        Write-Warning 'Could not find the ideal maximum point for the number of clusters; using the last point instead.'
+        $intCounterB = $intCounterAMax
+    }
+
+    $intCounterA = 1
     $arrKeyStatistics[$intCounterB].NumberOfClustersRank = $intCounterA
+    $intLowestClusterProcessed = $intCounterB
     $intCounterA++
+
+    for ($intCounterC = 0; ($intCounterB + $intCounterC + 1) -lt $arrKeyStatistics.Count; $intCounterC++) {
+        if ($intCounterB - ($intCounterC * 3) - 1 -ge 0) {
+            $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 1].NumberOfClustersRank = $intCounterA
+            $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 1
+            $intCounterA++
+        }
+        if ($intCounterB - ($intCounterC * 3) - 2 -ge 0) {
+            $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 2].NumberOfClustersRank = $intCounterA
+            $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 2
+            $intCounterA++
+        }
+        if ($intCounterB - ($intCounterC * 3) - 3 -ge 0) {
+            $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 3].NumberOfClustersRank = $intCounterA
+            $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 3
+            $intCounterA++
+        }
+        $arrKeyStatistics[$intCounterB + $intCounterC + 1].NumberOfClustersRank = $intCounterA
+        $intCounterA++
+    }
+
+    for ($intCounterB = $intLowestClusterProcessed - 1; $intCounterB -ge 0; $intCounterB--) {
+        $arrKeyStatistics[$intCounterB].NumberOfClustersRank = $intCounterA
+        $intCounterA++
+    }
 }
 #endregion Rank the number of clusters to bias toward more clusters ###################
 
@@ -2778,7 +2784,7 @@ if ($boolDoNotCalculateExtendedStatistics -eq $false) {
 
     # Higher values of SilhouetteScoreRank indicate better clustering
     $arrKeyStatistics | Sort-Object -Property 'SilhouetteScore' -Descending | ForEach-Object {
-        if ($null -eq $_.SilhouetteScoreRank) {
+        if ($null -eq $_.SilhouetteScore) {
             $_.SilhouetteScoreRank = $intCounterAMax
         } else {
             $_.SilhouetteScoreRank = $intCounterA
@@ -2798,7 +2804,7 @@ if ($boolDoNotCalculateExtendedStatistics -eq $false) {
 
     # Lower values of DaviesBouldinIndexRank indicate better clustering
     $arrKeyStatistics | Sort-Object -Property 'DaviesBouldinIndex' | ForEach-Object {
-        if ($null -eq $_.DaviesBouldinIndexRank) {
+        if ($null -eq $_.DaviesBouldinIndex) {
             $_.DaviesBouldinIndexRank = $intCounterAMax
         } else {
             $_.DaviesBouldinIndexRank = $intCounterA
@@ -2818,7 +2824,7 @@ if ($boolDoNotCalculateExtendedStatistics -eq $false) {
 
     # Higher values of CalinskiHarabaszIndexRank indicate better clustering
     $arrKeyStatistics | Sort-Object -Property 'CalinskiHarabaszIndex' -Descending | ForEach-Object {
-        if ($null -eq $_.CalinskiHarabaszIndexRank) {
+        if ($null -eq $_.CalinskiHarabaszIndex) {
             $_.CalinskiHarabaszIndexRank = $intCounterAMax
         } else {
             $_.CalinskiHarabaszIndexRank = $intCounterA
@@ -2828,7 +2834,7 @@ if ($boolDoNotCalculateExtendedStatistics -eq $false) {
 }
 #endregion Rank the Calinski-Harabasz Index to bias toward higher values ##############
 
-#region Generate Output CSV ########################################################
+#region Rank the Davies-Bouldin Index to bias toward lower values ##################
 Write-Debug 'Generating output CSV...'
 if ($versionPS -ge ([version]'6.0')) {
     $listOutput = New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'
@@ -2849,9 +2855,11 @@ for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
     $boolDaviesBouldinScoreUsed = $false
     $boolCalinskiHarabaszScoreUsed = $false
 
-    if ($null -ne $arrKeyStatistics[$intCounterA].NumberOfClustersRank) {
-        $boolClusterSizeUsed = $true
-        $doubleCompositeScore += $WeightingFactorForClusterSize * $arrKeyStatistics[$intCounterA].NumberOfClustersRank
+    if ($boolBiasedNumberOfClusters -eq $true) {
+        if ($null -ne $arrKeyStatistics[$intCounterA].NumberOfClustersRank) {
+            $boolClusterSizeUsed = $true
+            $doubleCompositeScore += $WeightingFactorForClusterSize * $arrKeyStatistics[$intCounterA].NumberOfClustersRank
+        }
     }
 
     if ($null -ne $arrKeyStatistics[$intCounterA].WCSSRank) {
