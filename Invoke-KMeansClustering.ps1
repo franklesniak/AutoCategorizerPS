@@ -79,7 +79,13 @@ param (
     [Parameter(Mandatory = $false)][switch]$DoNotCalculateExtendedStatistics,
     [Parameter(Mandatory = $false)][string]$OutputExcelWorkbookPathForAllClusterStatistics,
     [Parameter(Mandatory = $false)][string]$OutputExcelWorkbookPathForAllClusters,
-    [Parameter(Mandatory = $false)][switch]$DoNotCheckForModuleUpdates
+    [Parameter(Mandatory = $false)][switch]$DoNotCheckForModuleUpdates,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForClusterSize = 8,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSS = 3,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSSSecondDerivative = 42,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForSihouetteScore = 23,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForDaviesBouldinScore = 12,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForCalinskiHarabaszScore = 12
 )
 
 function Get-PSVersion {
@@ -2644,17 +2650,268 @@ for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
     $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'WCSSFirstDerivative' -Value $null
     $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'WCSSSecondDerivative' -Value $null
 }
+
 # Calculate the first derivative
-for ($intCounterA = 1; $intCounterA -le $intCounterAMax; $intCounterA++) {
+$intCounterA = 0
+if ($intCounterAMax -ge 1) {
+    $doubleWCSSFirstDerivative = $arrKeyStatistics[$intCounterA + 1].WithinClusterSumOfSquares - $arrKeyStatistics[$intCounterA].WithinClusterSumOfSquares
+    $arrKeyStatistics[$intCounterA].WCSSFirstDerivative = $doubleWCSSFirstDerivative
+}
+for ($intCounterA = 1; $intCounterA -le $intCounterAMax - 1; $intCounterA++) {
+    $doubleWCSSFirstDerivative = ($arrKeyStatistics[$intCounterA + 1].WithinClusterSumOfSquares - $arrKeyStatistics[$intCounterA - 1].WithinClusterSumOfSquares) / 2
+    $arrKeyStatistics[$intCounterA].WCSSFirstDerivative = $doubleWCSSFirstDerivative
+}
+$intCounterA = $intCounterAMax
+if ($intCounterAMax -ge 1) {
     $doubleWCSSFirstDerivative = $arrKeyStatistics[$intCounterA].WithinClusterSumOfSquares - $arrKeyStatistics[$intCounterA - 1].WithinClusterSumOfSquares
     $arrKeyStatistics[$intCounterA].WCSSFirstDerivative = $doubleWCSSFirstDerivative
 }
+
 # Calculate the second derivative
-for ($intCounterA = 2; $intCounterA -le $intCounterAMax; $intCounterA++) {
+$intCounterA = 0
+if ($intCounterAMax -ge 1) {
+    $doubleWCSSSecondDerivative = $arrKeyStatistics[$intCounterA + 1].WCSSFirstDerivative - $arrKeyStatistics[$intCounterA].WCSSFirstDerivative
+    $arrKeyStatistics[$intCounterA].WCSSSecondDerivative = $doubleWCSSSecondDerivative
+}
+for ($intCounterA = 1; $intCounterA -le $intCounterAMax - 1; $intCounterA++) {
+    $doubleWCSSSecondDerivative = ($arrKeyStatistics[$intCounterA + 1].WCSSFirstDerivative - $arrKeyStatistics[$intCounterA - 1].WCSSFirstDerivative) / 2
+    $arrKeyStatistics[$intCounterA].WCSSSecondDerivative = $doubleWCSSSecondDerivative
+}
+$intCounterA = $intCounterAMax
+if ($intCounterAMax -ge 1) {
     $doubleWCSSSecondDerivative = $arrKeyStatistics[$intCounterA].WCSSFirstDerivative - $arrKeyStatistics[$intCounterA - 1].WCSSFirstDerivative
     $arrKeyStatistics[$intCounterA].WCSSSecondDerivative = $doubleWCSSSecondDerivative
 }
 #endregion Calculate WCSS first and second derivative #################################
+
+#region Rank the number of clusters to bias toward more clusters ###################
+for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'NumberOfClustersRank' -Value $null
+}
+
+$boolIdealPointFound = $false
+$intUpperExpectedNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count)))
+for ($intCounterA = $intCounterAMax; $intCounterA -ge 0; $intCounterA--) {
+    if ($arrKeyStatistics[$intCounterA].NumberOfClusters -eq $intUpperExpectedNumberOfClusters) {
+        $boolIdealPointFound = $true
+        $intCounterB = $intCounterA
+        break
+    }
+}
+
+if ($boolIdealPointFound -eq $false) {
+    Write-Warning 'Could not find the ideal maximum point for the number of clusters; using the last point instead.'
+    $intCounterB = $intCounterAMax
+}
+
+$intCounterA = 1
+$arrKeyStatistics[$intCounterB].NumberOfClustersRank = $intCounterA
+$intLowestClusterProcessed = $intCounterB
+$intCounterA++
+
+for ($intCounterC = 0; ($intCounterB + $intCounterC + 1) -lt $arrKeyStatistics.Count; $intCounterC++) {
+    if ($intCounterB - ($intCounterC * 3) - 1 -ge 0) {
+        $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 1].NumberOfClustersRank = $intCounterA
+        $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 1
+        $intCounterA++
+    }
+    if ($intCounterB - ($intCounterC * 3) - 2 -ge 0) {
+        $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 2].NumberOfClustersRank = $intCounterA
+        $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 2
+        $intCounterA++
+    }
+    if ($intCounterB - ($intCounterC * 3) - 3 -ge 0) {
+        $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 3].NumberOfClustersRank = $intCounterA
+        $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 3
+        $intCounterA++
+    }
+    $arrKeyStatistics[$intCounterB + $intCounterC + 1].NumberOfClustersRank = $intCounterA
+    $intCounterA++
+}
+
+for ($intCounterB = $intLowestClusterProcessed - 1; $intCounterB -ge 0; $intCounterB--) {
+    $arrKeyStatistics[$intCounterB].NumberOfClustersRank = $intCounterA
+    $intCounterA++
+}
+#endregion Rank the number of clusters to bias toward more clusters ###################
+
+#region Rank the WCSS to bias toward tighter clusters ##############################
+for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'WCSSRank' -Value $null
+}
+
+$intCounterA = 1
+
+# Sort the array by WCSS
+$arrKeyStatistics | Sort-Object -Property 'WithinClusterSumOfSquares' | ForEach-Object {
+    $_.WCSSRank = $intCounterA
+    $intCounterA++
+}
+#endregion Rank the WCSS to bias toward tighter clusters ##############################
+
+#region Rank the WCSS second derivative to bias toward elbow point #################
+for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'WCSSSecondDerivativeRank' -Value $null
+}
+
+$intCounterA = 1
+
+# Higher values of WCSSSecondDerivativeRank indicates it's more likely the elbow point
+$arrKeyStatistics | Sort-Object -Property 'WCSSSecondDerivative' -Descending | ForEach-Object {
+    if ($null -eq $_.WCSSSecondDerivative) {
+        # First or second cluster - no second derivative
+        $_.WCSSSecondDerivativeRank = $intCounterAMax
+    } else {
+        $_.WCSSSecondDerivativeRank = $intCounterA
+        $intCounterA++
+    }
+}
+#endregion Rank the WCSS second derivative to bias toward elbow point #################
+
+#region Rank the Silhouette Score to bias toward higher values #####################
+if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'SilhouetteScoreRank' -Value $null
+    }
+
+    $intCounterA = 1
+
+    # Higher values of SilhouetteScoreRank indicate better clustering
+    $arrKeyStatistics | Sort-Object -Property 'SilhouetteScore' -Descending | ForEach-Object {
+        if ($null -eq $_.SilhouetteScoreRank) {
+            $_.SilhouetteScoreRank = $intCounterAMax
+        } else {
+            $_.SilhouetteScoreRank = $intCounterA
+            $intCounterA++
+        }
+    }
+}
+#endregion Rank the Silhouette Score to bias toward higher values #####################
+
+#region Rank the Davies-Bouldin Index to bias toward lower values ##################
+if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'DaviesBouldinIndexRank' -Value $null
+    }
+
+    $intCounterA = 1
+
+    # Lower values of DaviesBouldinIndexRank indicate better clustering
+    $arrKeyStatistics | Sort-Object -Property 'DaviesBouldinIndex' | ForEach-Object {
+        if ($null -eq $_.DaviesBouldinIndexRank) {
+            $_.DaviesBouldinIndexRank = $intCounterAMax
+        } else {
+            $_.DaviesBouldinIndexRank = $intCounterA
+            $intCounterA++
+        }
+    }
+}
+#endregion Rank the Davies-Bouldin Index to bias toward lower values ##################
+
+#region Rank the Calinski-Harabasz Index to bias toward higher values ##############
+if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'CalinskiHarabaszIndexRank' -Value $null
+    }
+
+    $intCounterA = 1
+
+    # Higher values of CalinskiHarabaszIndexRank indicate better clustering
+    $arrKeyStatistics | Sort-Object -Property 'CalinskiHarabaszIndex' -Descending | ForEach-Object {
+        if ($null -eq $_.CalinskiHarabaszIndexRank) {
+            $_.CalinskiHarabaszIndexRank = $intCounterAMax
+        } else {
+            $_.CalinskiHarabaszIndexRank = $intCounterA
+            $intCounterA++
+        }
+    }
+}
+#endregion Rank the Calinski-Harabasz Index to bias toward higher values ##############
+
+#region Generate Output CSV ########################################################
+Write-Debug 'Generating output CSV...'
+if ($versionPS -ge ([version]'6.0')) {
+    $listOutput = New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'
+} else {
+    # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+    # of a generic list
+}
+#endregion Rank the Davies-Bouldin Index to bias toward lower values ##################
+
+#region Generate composite ranking #################################################
+for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+    $doubleCompositeScore = [double]0
+
+    $boolClusterSizeUsed = $false
+    $boolWCSSUsed = $false
+    $boolWCSSSecondDerivativeUsed = $false
+    $boolSihouetteScoreUsed = $false
+    $boolDaviesBouldinScoreUsed = $false
+    $boolCalinskiHarabaszScoreUsed = $false
+
+    if ($null -ne $arrKeyStatistics[$intCounterA].NumberOfClustersRank) {
+        $boolClusterSizeUsed = $true
+        $doubleCompositeScore += $WeightingFactorForClusterSize * $arrKeyStatistics[$intCounterA].NumberOfClustersRank
+    }
+
+    if ($null -ne $arrKeyStatistics[$intCounterA].WCSSRank) {
+        $boolWCSSUsed = $true
+        $doubleCompositeScore += $WeightingFactorForWCSS * $arrKeyStatistics[$intCounterA].WCSSRank
+    }
+
+    if ($null -ne $arrKeyStatistics[$intCounterA].WCSSSecondDerivativeRank) {
+        $boolWCSSSecondDerivativeUsed = $true
+        $doubleCompositeScore += $WeightingFactorForWCSSSecondDerivative * $arrKeyStatistics[$intCounterA].WCSSSecondDerivativeRank
+    }
+
+    if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+        if ($null -ne $arrKeyStatistics[$intCounterA].SilhouetteScoreRank) {
+            $boolSihouetteScoreUsed = $true
+            $doubleCompositeScore += $WeightingFactorForSihouetteScore * $arrKeyStatistics[$intCounterA].SilhouetteScoreRank
+        }
+
+        if ($null -ne $arrKeyStatistics[$intCounterA].DaviesBouldinIndexRank) {
+            $boolDaviesBouldinScoreUsed = $true
+            $doubleCompositeScore += $WeightingFactorForDaviesBouldinScore * $arrKeyStatistics[$intCounterA].DaviesBouldinIndexRank
+        }
+
+        if ($null -ne $arrKeyStatistics[$intCounterA].CalinskiHarabaszIndexRank) {
+            $boolCalinskiHarabaszScoreUsed = $true
+            $doubleCompositeScore += $WeightingFactorForCalinskiHarabaszScore * $arrKeyStatistics[$intCounterA].CalinskiHarabaszIndexRank
+        }
+    }
+
+    $doubleDivisor = [double]0
+
+    if ($boolClusterSizeUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForClusterSize
+    }
+    if ($boolWCSSUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForWCSS
+    }
+    if ($boolWCSSSecondDerivativeUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForWCSSSecondDerivative
+    }
+    if ($boolSihouetteScoreUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForSihouetteScore
+    }
+    if ($boolDaviesBouldinScoreUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForDaviesBouldinScore
+    }
+    if ($boolCalinskiHarabaszScoreUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForCalinskiHarabaszScore
+    }
+
+    if ($doubleDivisor -gt 0) {
+        $doubleCompositeScore /= $doubleDivisor
+    } else {
+        Write-Warning 'The divisor for the composite score was zero; the composite score will be set to zero.'
+        $doubleCompositeScore = 0
+    }
+
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'CompositeRank' -Value $doubleCompositeScore
+}
+#endregion Generate composite ranking #################################################
 
 return # temp
 
