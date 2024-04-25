@@ -2834,16 +2834,6 @@ if ($boolDoNotCalculateExtendedStatistics -eq $false) {
 }
 #endregion Rank the Calinski-Harabasz Index to bias toward higher values ##############
 
-#region Rank the Davies-Bouldin Index to bias toward lower values ##################
-Write-Debug 'Generating output CSV...'
-if ($versionPS -ge ([version]'6.0')) {
-    $listOutput = New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'
-} else {
-    # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
-    # of a generic list
-}
-#endregion Rank the Davies-Bouldin Index to bias toward lower values ##################
-
 #region Generate composite ranking #################################################
 for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
     $doubleCompositeScore = [double]0
@@ -2920,6 +2910,11 @@ for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
     $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'CompositeRank' -Value $doubleCompositeScore
 }
 #endregion Generate composite ranking #################################################
+
+#region Select best number of clusters #############################################
+$PSCustomObjectTopCluster = $arrKeyStatistics | Sort-Object -Property 'CompositeRank' | Select-Object -First 1
+
+#endregion Select best number of clusters #############################################
 
 return # temp
 
