@@ -2764,6 +2764,7 @@ if ($intMinNumberOfClusters -ne 1) {
     if ($boolDoNotCalculateExtendedStatistics -eq $false) {
         # We need to run it once for a single cluster to get the centroid for the whole
         # data set
+        Write-Information ('Performing k-means clustering for 1 cluster to get the centroid for the whole dataset...')
         $hashtableKToClusterArtifactsTEMP = @{}
         Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifactsTEMP) -NumberOfClusters 1 -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset)
     }
