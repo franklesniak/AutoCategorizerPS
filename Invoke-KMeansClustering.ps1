@@ -2634,11 +2634,7 @@ foreach ($strPackageName in $arrNuGetPackages) {
 
 #region Determine upper and lower bounds for the number of clusters ################
 if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
-    if ($arrInputCSV.Count -lt 2) {
-        $intMinNumberOfClusters = $arrInputCSV.Count
-    } else {
-        $intMinNumberOfClusters = 2
-    }
+    $intMinNumberOfClusters = 1
     $intMaxNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count) * 1.2))
     if ($intMaxNumberOfClusters -gt $arrInputCSV.Count) {
         $intMaxNumberOfClusters = $arrInputCSV.Count
@@ -2658,6 +2654,18 @@ $boolDoNotCalculateExtendedStatistics = $false
 if ($null -ne $DoNotCalculateExtendedStatistics) {
     if ($DoNotCalculateExtendedStatistics.IsPresent -eq $true) {
         $boolDoNotCalculateExtendedStatistics = $true
+    }
+}
+
+# Display warning/information messages if necessary
+if ($boolDoNotCalculateExtendedStatistics -eq $true) {
+    Write-Warning 'The script is running without calculating the silhouette score, Davies-Bouldin index, and Calinski-Harabasz index; this will significantly speed up execution, but may lead to a less-ideal selection for the number of clusters.'
+    if (([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $false) -and ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false)) {
+        Write-Warning 'Additionally, the script is working in unsupervised mode; it will do its best to select the best number of clusters and output the results to a CSV file, but no statistics and no Excel workbook that contains information about alternative numbers of clusters will be created. Combined with the fact that the silhouette score, Davies-Bouldin index, and Calinski-Harabasz index are not being calculated, running unsupervised in this manner is not a recommended mode of execution.'
+    }
+} else {
+    if (([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $false) -and ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false)) {
+        Write-Information 'The script is working in unsupervised mode; it will automatically select the best number of clusters and output the results to a CSV file, but no statistics and no Excel workbook that contains information about alternative numbers of clusters will be created.'
     }
 }
 
@@ -2744,6 +2752,7 @@ if ($intCounterAMax -ge 1) {
 $boolBiasedNumberOfClusters = $false
 $doubleMaxSihlouetteScore = $arrKeyStatistics | Sort-Object -Property 'SilhouetteScore' -Descending | Select-Object -First 1 -ExpandProperty 'SilhouetteScore'
 if ($doubleMaxSihlouetteScore -lt 0.4) {
+    Write-Warning ('The maximum silhouette score is less than 0.4 (' + [string]::Format('{0:0.00}', $doubleMaxSihlouetteScore) + '); the data may not be well-clustered.')
     # The data may not be well-clustered; rank the number of clusters to bias toward more clusters
     $boolBiasedNumberOfClusters = $true
     for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
@@ -3036,7 +3045,7 @@ $intBestNumberOfClusters = $PSCustomObjectTopCluster.NumberOfClusters
 Write-Information ('Best number of clusters: ' + $intBestNumberOfClusters)
 #endregion Select best number of clusters #############################################
 
-#region Generate Output CSV ########################################################
+#region Generate output CSV for selected number of clusters ########################
 Write-Information ('Generating output CSV for ' + $intBestNumberOfClusters + ' clusters')
 $intNumberOfClusters = $intBestNumberOfClusters
 
@@ -3084,4 +3093,4 @@ for ($intCounterB = 0; $intCounterB -lt $intNumberOfClusters; $intCounterB++) {
 $listOutput |
     Sort-Object -Property @(@{ Expression = 'CountOfItemsInCluster'; Descending = $true }, @{ Expression = 'MostRepresentativeItem'; Descending = $false }) |
     Export-Csv -Path $OutputCSVPath -NoTypeInformation
-#endregion Generate Output CSV ########################################################
+#endregion Generate output CSV for selected number of clusters ########################
