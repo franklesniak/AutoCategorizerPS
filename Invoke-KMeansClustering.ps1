@@ -1,5 +1,5 @@
 # Invoke-KMeansClustering.ps1
-# Version: 2.0.20240422.0
+# Version: 2.0.20240428.0
 
 <#
 .SYNOPSIS
@@ -26,7 +26,28 @@ Specifies the name of the field in the input CSV file containing the embeddings.
 embeddings must be stored as a semicolon-separated string of numbers.
 
 .PARAMETER OutputCSVPath
-Specifies the path to the output CSV file that will list the K-means cluster metadata.
+Specifies the path to the output CSV file that will list the K-means cluster metadata
+for the selected number of clusters.
+
+.PARAMETER OutputCSVPathForAllClusterStatistics
+Optional but highly recommended parameter; specifies the path to the output CSV file
+that will list the K-means cluster statistics for varying numbers of clusters. This
+file will contain the Within-Cluster Sum of Squares (WCSS), the second derivative of
+the WCSS, the Silhouette Score, the Davies-Bouldin Score, and the Calinski-Harabasz
+Score for each number of clusters tested. It will also show the ranking applied to
+each statistics and an overall composite index that reflects how the number of clusters
+was automatically selected.
+
+If running unsupervised, it is wise to review the statistics in this file to ensure
+that the number of clusters selected is appropriate.
+
+.PARAMETER OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters
+Optional but highly recommended parameter; specifies the path to the output Excel
+workbook that will contain a worksheet for each number of clusters tested. Each
+worksheet will contain the cluster metadata for that number of clusters. This workbook
+is useful for visually inspecting the clusters and the items that belong to each
+cluster, and it is useful if you want to "override" the selection of the number of
+clusters, as you can easily save a worksheet in the Excel workbook as a CSV.
 
 .PARAMETER NSizeForMostRepresentativeDataPoints
 Specifies the number of data points to include in the output CSV file that are closest
@@ -37,12 +58,80 @@ Optional parameter; allows the user to specify the number of clusters they want 
 script to use. When this parameter is not specified, the script will use the "elbow
 method" to determine the optimal number of clusters.
 
+.PARAMETER DoNotCalculateExtendedStatistics
+Optional parameter; when specified, the script will not calculate the Silhouette Score,
+Davies-Bouldin Score, and Calinski-Harabasz Score for each number of clusters tested.
+This can be useful if you are only interested in the Within-Cluster Sum of Squares
+(WCSS) and the second derivative of the WCSS. However, it can lead to poorer-quality
+selection of the number of clusters, which leads to poorer clustering results.
+
+On the plus side, it significantly reduces the time it takes to run the script.
+
+.PARAMETER DoNotCheckForModuleUpdates
+Optional parameter; when specified, the script will not check for updates to the
+required modules. This can be useful if you are running the script in an environment
+where you do not have internet access, or if you are running the script in an
+environment where you are not allowed to install modules.
+
+Or maybe you don't care if your modules are up to date - in which case, you can save
+yourself a few seconds by specifying this parameter.
+
+.PARAMETER WeightingFactorForNumberOfClusters
+Optional parameter; specifies the weighting factor to apply to the number of clusters
+when calculating the composite index for selecting the number of clusters. The default
+value is 8. The number of clusters is only weighted when the maximum silhouette score
+across all iterations is less than 0.4, indicating potential poor clustering. When this
+happens, the script biases toward selecting more clusters.
+
+.PARAMETER WeightingFactorForWCSS
+Optional parameter; specifies the weighting factor to apply to the Within-Cluster Sum
+of Squares (WCSS) when calculating the composite index for selecting the number of
+clusters. The default value is 3. A small default weighting is used because a low WCSS
+is generally a good indicator of good clustering; however, the WCSS will almost always
+be low when the number of clusters is high, which can lead to "over-fitting".
+
+.PARAMETER WeightingFactorForWCSSSecondDerivative
+Optional parameter; specifies the weighting factor to apply to the second derivative of
+the Within-Cluster Sum of Squares (WCSS) when calculating the composite index for
+selecting the number of clusters. The default value is 42. The second derivative of the
+WCSS indicates the change in slope, so the highest second derivative may indicate the
+"elbow point" in the WCSS plot, which is used to select the number of clusters.
+
+.PARAMETER WeightingFactorForSihouetteScore
+Optional parameter; specifies the weighting factor to apply to the Silhouette Score when
+calculating the composite index for selecting the number of clusters. The default value
+is 23. The Silhouette Score is a measure of how similar an object is to its own cluster
+compared to other clusters. Silhouette Scores range from -1 to 1, with a high value
+indicating that the object is well matched to its own cluster and poorly matched to
+neighboring clusters.
+
+.PARAMETER WeightingFactorForDaviesBouldinScore
+Optional parameter; specifies the weighting factor to apply to the Davies-Bouldin Score
+when calculating the composite index for selecting the number of clusters. The default
+value is 12. The Davies-Bouldin Score is a measure of the average similarity between
+each cluster and its most similar cluster. The lower the score, the better the
+clustering.
+
+.PARAMETER WeightingFactorForCalinskiHarabaszScore
+Optional parameter; specifies the weighting factor to apply to the Calinski-Harabasz
+Score when calculating the composite index for selecting the number of clusters. The
+default value is 12. The Calinski-Harabasz Score is a measure of how dense the clusters
+are and how far apart they are from each other. A higher score indicates better
+clustering.
+
 .EXAMPLE
-PS C:\> .\Invoke-KMeansClustering.ps1 -InputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - With Embeddings.csv' -DataFieldNameContainingEmbeddings 'Embeddings' -OutputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata.csv'
+PS C:\> .\Invoke-KMeansClustering.ps1 -InputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - With Embeddings.csv' -DataFieldNameContainingEmbeddings 'Embeddings' -OutputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata.csv' -OutputCSVPathForAllClusterStatistics 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Statistics.csv' -OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Info For Varying Numbers of Clusters.xlsx' -InformationAction Continue
 
 This example reads in a CSV file containing embeddings and uses the K-Means
-clustering algorithm to group the data into clusters. The script then creates a new CSV
-file containing the cluster metadata.
+clustering algorithm to group the data into clusters. It will perform the clustering
+operation for a varying number of clusters from 1 to n, where n is the square root of
+the number of items in the data set, plus 20%, rounded up to the nearest integer. The
+script determines which number of clusters is optimal using the "elbow method" and
+by incorporating additional cluster statistics such as the Silhouette Score, Davies-
+Bouldin Score, and Calinski-Harabasz Score. The script then creates a new CSV file
+containing the cluster metadata, a CSV file containing the cluster statistics for
+varying numbers of clusters, and an Excel workbook containing a worksheet for each
+number of clusters tested.
 
 .OUTPUTS
 None
@@ -80,7 +169,7 @@ param (
     [Parameter(Mandatory = $false)][ValidateScript({ ($_ -ge 2) -or ($_ -eq 0) })][int]$NumberOfClusters,
     [Parameter(Mandatory = $false)][switch]$DoNotCalculateExtendedStatistics,
     [Parameter(Mandatory = $false)][switch]$DoNotCheckForModuleUpdates,
-    [Parameter(Mandatory = $false)][double]$WeightingFactorForClusterSize = 8,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForNumberOfClusters = 8,
     [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSS = 3,
     [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSSSecondDerivative = 42,
     [Parameter(Mandatory = $false)][double]$WeightingFactorForSihouetteScore = 23,
@@ -2913,7 +3002,7 @@ for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
     if ($boolBiasedNumberOfClusters -eq $true) {
         if ($null -ne $arrKeyStatistics[$intCounterA].NumberOfClustersRank) {
             $boolClusterSizeUsed = $true
-            $doubleCompositeScore += $WeightingFactorForClusterSize * $arrKeyStatistics[$intCounterA].NumberOfClustersRank
+            $doubleCompositeScore += $WeightingFactorForNumberOfClusters * $arrKeyStatistics[$intCounterA].NumberOfClustersRank
         }
     }
 
@@ -2947,7 +3036,7 @@ for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
     $doubleDivisor = [double]0
 
     if ($boolClusterSizeUsed -eq $true) {
-        $doubleDivisor += $WeightingFactorForClusterSize
+        $doubleDivisor += $WeightingFactorForNumberOfClusters
     }
     if ($boolWCSSUsed -eq $true) {
         $doubleDivisor += $WeightingFactorForWCSS
