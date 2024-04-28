@@ -74,11 +74,11 @@ param (
     [Parameter(Mandatory = $true)][string]$InputCSVPath,
     [Parameter(Mandatory = $false)][string]$DataFieldNameContainingEmbeddings = 'Embeddings',
     [Parameter(Mandatory = $true)][string]$OutputCSVPath,
+    [Parameter(Mandatory = $false)][string]$OutputCSVPathForAllClusterStatistics,
+    [Parameter(Mandatory = $false)][string]$OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters,
     [Parameter(Mandatory = $false)][int]$NSizeForMostRepresentativeDataPoints = 5,
     [Parameter(Mandatory = $false)][ValidateScript({ ($_ -ge 2) -or ($_ -eq 0) })][int]$NumberOfClusters,
     [Parameter(Mandatory = $false)][switch]$DoNotCalculateExtendedStatistics,
-    [Parameter(Mandatory = $false)][string]$OutputExcelWorkbookPathForAllClusterStatistics,
-    [Parameter(Mandatory = $false)][string]$OutputExcelWorkbookPathForAllClusters,
     [Parameter(Mandatory = $false)][switch]$DoNotCheckForModuleUpdates,
     [Parameter(Mandatory = $false)][double]$WeightingFactorForClusterSize = 8,
     [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSS = 3,
@@ -1024,7 +1024,7 @@ function Test-NuGetDotOrgRegisteredAsPackageSource {
     }
 
     $boolPackageSourceFound = $true
-    Write-Debug ('Checking for registered package sources (Get-PackageSource)...')
+    Write-Information ('Checking for registered package sources (Get-PackageSource)...')
     $WarningPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
     $VerbosePreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
     $DebugPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
@@ -1194,7 +1194,7 @@ function Get-PackagesUsingHashtable {
     $DebugPreference = $DebugPreferenceAtStartOfFunction
 
     for ($intCounter = 0; $intCounter -lt $arrPackagesToGet.Count; $intCounter++) {
-        Write-Debug ('Checking for ' + $arrPackagesToGet[$intCounter] + ' software package...')
+        Write-Information ('Checking for ' + $arrPackagesToGet[$intCounter] + ' software package...')
         $arrMatchingPackages = @($arrPackagesInstalled | Where-Object { $_.Name -eq $arrPackagesToGet[$intCounter] })
         if ($arrMatchingPackages.Count -eq 0) {
             ($ReferenceToHashtable.Value).Item($arrPackagesToGet[$intCounter]) = $null
@@ -1969,7 +1969,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
     $arrClusterNumberAssignmentsForEachItem = $kmeans.Clusters.Decide($ReferenceToTwoDimensionalArrayOfEmbeddings.Value)
 
     #region Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
-    Write-Debug ('Creating hashtable for efficient lookup of cluster # to associated items...')
+    if ($NumberOfClusters -eq 1) {
+        Write-Information ('1 cluster: Creating hashtable for efficient lookup of cluster # to associated items...')
+    } else {
+        Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable for efficient lookup of cluster # to associated items...')
+    }
     # Create a hashtable for easier lookup of cluster number to comment index number
     $hashtableClustersToItems = @{}
     if ($versionPS -ge ([version]'6.0')) {
@@ -2010,7 +2014,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
     #endregion Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
 
     #region Create Hashtable Including Euclidian Distance from Item to Centroid ########
-    Write-Debug ('Creating hashtable including Euclidian distance from each item to its cluster centroid...')
+    if ($NumberOfClusters -eq 1) {
+        Write-Information ('1 cluster: Creating hashtable including Euclidian distance from each item to its cluster centroid...')
+    } else {
+        Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable including Euclidian distance from each item to its cluster centroid...')
+    }
     $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances = @{}
     if ($versionPS -ge ([version]'6.0')) {
         for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
@@ -2032,7 +2040,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
     $intProgressReportingFrequency = 50
     $intTotalItems = $arrInputCSV.Count
     $strProgressActivity = 'Performing k-means clustering'
-    $strProgressStatus = 'Calculating distances from items to cluster centroids'
+    if ($NumberOfClusters -eq 1) {
+        $strProgressStatus = 'Calculating distances from items to cluster centroid (1 cluster)'
+    } else {
+        $strProgressStatus = 'Calculating distances from items to cluster centroids (' + [string]$NumberOfClusters + ' clusters)'
+    }
     $strProgressCurrentOperationPrefix = 'Processing item'
     $timedateStartOfLoop = Get-Date
     # Create a queue for storing lagging timestamps for ETA calculation
@@ -2137,7 +2149,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
 
     #region Create Hashtable of Silhouette Scores for Each Item #########################
     if ($boolCalculateExtendedStatistics -eq $true) {
-        Write-Debug ('Creating hashtable of silhouette scores for each item...')
+        if ($NumberOfClusters -eq 1) {
+            Write-Information ('1 cluster: Creating hashtable of silhouette scores for each item...')
+        } else {
+            Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable of silhouette scores for each item...')
+        }
         $hashtableItemsToSilhouetteScores = @{}
 
         $intCounterMax = $ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length
@@ -2146,7 +2162,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
         $intProgressReportingFrequency = 1
         $intTotalItems = $intCounterMax
         $strProgressActivity = 'Performing k-means clustering'
-        $strProgressStatus = 'Calculating silhouette scores for each item in the dataset'
+        if ($NumberOfClusters -eq 1) {
+            $strProgressStatus = 'Calculating silhouette scores for each item in the dataset (1 cluster)'
+        } else {
+            $strProgressStatus = 'Calculating silhouette scores for each item in the dataset (' + [string]$NumberOfClusters + ' clusters)'
+        }
         $strProgressCurrentOperationPrefix = 'Processing item'
         $timedateStartOfLoop = Get-Date
         # Create a queue for storing lagging timestamps for ETA calculation
@@ -2293,7 +2313,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
     #endregion Create Hashtable of Distances Between Each Centroid and All Other Centroids
 
     #region Create Hashtable Of Average Distance for Each Cluster and Compute WCSS #
-    Write-Debug ('Creating hashtable of average distance for each cluster and computing within-cluster sum of squares along the way...')
+    if ($NumberOfClusters -eq 1) {
+        Write-Information ('1 cluster: Creating hashtable of average distance for each cluster and computing within-cluster sum of squares...')
+    } else {
+        Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable of average distance for each cluster and computing within-cluster sum of squares...')
+    }
     $doubleWCSS = [double]0
     for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
         $doubleSum = [double]0
@@ -2324,7 +2348,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
 
     #region Compute Silhouette Score ###############################################
     if ($boolCalculateExtendedStatistics -eq $true) {
-        Write-Debug ('Computing silhouette score...')
+        if ($NumberOfClusters -eq 1) {
+            Write-Information ('1 cluster: Computing silhouette score...')
+        } else {
+            Write-Information ([string]$NumberOfClusters + ' clusters: Computing silhouette score...')
+        }
         if ($NumberOfClusters -gt 1) {
             $doubleSilhouetteScore = [double]0
             $intCounterMax = $ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length
@@ -2339,7 +2367,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
 
     #region Compute Davies-Bouldin Index ###########################################
     if ($boolCalculateExtendedStatistics -eq $true) {
-        Write-Debug ('Computing Davies-Bouldin index...')
+        if ($NumberOfClusters -eq 1) {
+            Write-Information ('1 cluster: Computing Davies-Bouldin index...')
+        } else {
+            Write-Information ([string]$NumberOfClusters + ' clusters: Computing Davies-Bouldin index...')
+        }
         if ($NumberOfClusters -ge 2) {
             $doubleDBIndex = [double]0
             for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
@@ -2364,7 +2396,11 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
 
     #region Compute Calinski-Harabasz Index #########################################
     if ($boolCalculateExtendedStatistics -eq $true) {
-        Write-Debug ('Computing Calinski-Harabasz index...')
+        if ($NumberOfClusters -eq 1) {
+            Write-Information ('1 cluster: Computing Calinski-Harabasz index...')
+        } else {
+            Write-Information ([string]$NumberOfClusters + ' clusters: Computing Calinski-Harabasz index...')
+        }
         if ($NumberOfClusters -ge 2) {
             $doubleNumerator = $doubleBetweenClusterScatter / ($NumberOfClusters - 1)
             $doubleDenominator = $doubleWithinClusterScatter / (($ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length) - $NumberOfClusters)
@@ -2390,7 +2426,7 @@ if ($versionPS -lt [version]'5.0') {
 #endregion Quit if PowerShell Version is Unsupported ##################################
 
 #region Check for required PowerShell Modules ######################################
-if (([string]::IsNullOrEmpty($OutputExcelWorkbookPathForAllClusterStatistics) -eq $false) -or ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForAllClusters) -eq $false)) {
+if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false) {
     # User has requested at least one Excel workbook; make sure ImportExcel is
     # installed
     $hashtableModuleNameToInstalledModules = @{}
@@ -2410,7 +2446,7 @@ if (([string]::IsNullOrEmpty($OutputExcelWorkbookPathForAllClusterStatistics) -e
 #endregion Check for required PowerShell Modules ######################################
 
 #region Check for PowerShell module updates ########################################
-if (([string]::IsNullOrEmpty($OutputExcelWorkbookPathForAllClusterStatistics) -eq $false) -or ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForAllClusters) -eq $false)) {
+if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false) {
     # User has requested at least one Excel workbook; make sure ImportExcel is
     # up to date
     $boolDoNotCheckForModuleUpdates = $false
@@ -2468,16 +2504,36 @@ if ($boolResult -eq $false) {
 }
 #endregion Make sure that required NuGet packages are installed #######################
 
-#region Make sure the output file doesn't already exist ############################
+#region Make sure the output files don't already exist #############################
 # (and if it does, delete it and then verify that it's gone)
 if ((Test-Path -Path $OutputCSVPath -PathType Leaf) -eq $true) {
-    Remove-Item -Path $OutputCSVPath -Force
+    Remove-Item -Path $OutputCSVPath -Force -ErrorAction SilentlyContinue
     if ((Test-Path -Path $OutputCSVPath -PathType Leaf) -eq $true) {
         Write-Warning ('Output CSV file already exists and could not be deleted (the file may be in use): "' + $OutputCSVPath + '"')
         return
     }
 }
-#endregion Make sure the output file doesn't already exist ############################
+
+if ([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $false) {
+    if ((Test-Path -Path $OutputCSVPathForAllClusterStatistics -PathType Leaf) -eq $true) {
+        Remove-Item -Path $OutputCSVPathForAllClusterStatistics -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -Path $OutputCSVPathForAllClusterStatistics -PathType Leaf) -eq $true) {
+            Write-Warning ('Output CSV file for cluster statistics already exists and could not be deleted (the file may be in use): "' + $OutputCSVPathForAllClusterStatistics + '"')
+            return
+        }
+    }
+}
+
+if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false) {
+    if ((Test-Path -Path $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters -PathType Leaf) -eq $true) {
+        Remove-Item -Path $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -Path $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters -PathType Leaf) -eq $true) {
+            Write-Warning ('Output Excel workbook for all clusters already exists and could not be deleted (the file may be in use): "' + $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters + '"')
+            return
+        }
+    }
+}
+#endregion Make sure the output files don't already exist #############################
 
 #region Import the CSV #############################################################
 $arrInputCSV = @()
@@ -2562,7 +2618,7 @@ foreach ($strPackageName in $arrNuGetPackages) {
             $arrDLLPaths += $strDLLPath
 
             # Load the .dll
-            Write-Debug ('Loading .dll: "' + $strDLLPath + '"')
+            Write-Information ('Loading .dll: "' + $strDLLPath + '"')
             try {
                 Add-Type -Path $strDLLPath
             } catch {
@@ -2578,10 +2634,10 @@ foreach ($strPackageName in $arrNuGetPackages) {
 
 #region Determine upper and lower bounds for the number of clusters ################
 if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
-    if ($arrInputCSV.Count -lt 1) {
+    if ($arrInputCSV.Count -lt 2) {
         $intMinNumberOfClusters = $arrInputCSV.Count
     } else {
-        $intMinNumberOfClusters = 1
+        $intMinNumberOfClusters = 2
     }
     $intMaxNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count) * 1.2))
     if ($intMaxNumberOfClusters -gt $arrInputCSV.Count) {
@@ -2911,15 +2967,79 @@ for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
 }
 #endregion Generate composite ranking #################################################
 
+#region Output statistics if requested #############################################
+Write-Information 'Generating output CSV of statistics...'
+if ([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $false) {
+    $arrKeyStatistics | Export-Csv -Path $OutputCSVPathForAllClusterStatistics -NoTypeInformation
+}
+#endregion Output statistics if requested #############################################
+
+#region Output information about each k-means clustering operation (with varying numbers of clusters) if requested
+Write-Information 'Generating output Excel workbook for cluster information...'
+if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false) {
+    $arrNumberOfClusters = @($hashtableKToClusterArtifacts.Keys)
+    $intCounterAMax = $arrNumberOfClusters.Count - 1
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $intNumberOfClusters = $arrNumberOfClusters[$intCounterA]
+
+        if ($versionPS -ge ([version]'6.0')) {
+            $listOutput = New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'
+        } else {
+            # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+            # of a generic list
+            # TODO: Fill in rationale for this
+            #
+            # Technically, in older versions of PowerShell, the type in the ArrayList will
+            # be a PSObject; but that does not matter for our purposes.
+            $listOutput = New-Object -TypeName 'System.Collections.ArrayList'
+        }
+
+        for ($intCounterB = 0; $intCounterB -lt $intNumberOfClusters; $intCounterB++) {
+            # Cluster #: $intCounterB
+
+            $arrSortedItems = $hashtableKToClusterArtifacts.Item($intNumberOfClusters).HashtableClustersToItemsAndDistances.Item($intCounterB) | Sort-Object -Property 'DistanceFromCentroid'
+            $intMostRepresentativeItem = ($arrSortedItems[0]).ItemNumber
+            $arrNMostRepresentativeItems = @($arrSortedItems | Select-Object -First $NSizeForMostRepresentativeDataPoints | ForEach-Object { $_.ItemNumber })
+            $strNMostRepresentativeItems = $arrNMostRepresentativeItems -Join '; '
+            $strItemsInCluster = @($arrSortedItems | ForEach-Object { $_.ItemNumber }) -Join '; '
+            $psobject = New-Object -TypeName 'PSObject'
+            $psobject | Add-Member -MemberType NoteProperty -Name 'MostRepresentativeItemIndex' -Value $intMostRepresentativeItem
+            $psobject | Add-Member -MemberType NoteProperty -Name 'CountOfNMostRepresentativeItems' -Value ($arrNMostRepresentativeItems.Count)
+            $psobject | Add-Member -MemberType NoteProperty -Name 'NMostRepresentativeItemIndices' -Value $strNMostRepresentativeItems
+            $psobject | Add-Member -MemberType NoteProperty -Name 'CountOfItemsInCluster' -Value ($arrSortedItems.Count)
+            $psobject | Add-Member -MemberType NoteProperty -Name 'ItemsInClusterIndices' -Value $strItemsInCluster
+
+            # Add the cluster information to the list
+            if ($versionPS -ge ([version]'6.0')) {
+                $listOutput.Add($psobject)
+            } else {
+                # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+                # of a generic list
+                # TODO: Fill in rationale for this
+                #
+                # Technically, in older versions of PowerShell, the type in the ArrayList will
+                # be a PSObject; but that does not matter for our purposes.
+                [void]($listOutput.Add($psobject))
+            }
+        }
+
+        $listOutput |
+            Sort-Object -Property @(@{ Expression = 'CountOfItemsInCluster'; Descending = $true }, @{ Expression = 'MostRepresentativeItem'; Descending = $false }) |
+            Export-Excel -Path $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters -WorksheetName ([string]$intNumberOfClusters + ' Clusters') -AutoFilter -FreezeTopRow -BoldTopRow
+    }
+}
+#endregion Output information about each k-means clustering operation (with varying numbers of clusters) if requested
+
 #region Select best number of clusters #############################################
 $PSCustomObjectTopCluster = $arrKeyStatistics | Sort-Object -Property 'CompositeRank' | Select-Object -First 1
-
+$intBestNumberOfClusters = $PSCustomObjectTopCluster.NumberOfClusters
+Write-Information ('Best number of clusters: ' + $intBestNumberOfClusters)
 #endregion Select best number of clusters #############################################
 
-return # temp
-
 #region Generate Output CSV ########################################################
-Write-Debug 'Generating output CSV...'
+Write-Information ('Generating output CSV for ' + $intBestNumberOfClusters + ' clusters')
+$intNumberOfClusters = $intBestNumberOfClusters
+
 if ($versionPS -ge ([version]'6.0')) {
     $listOutput = New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'
 } else {
@@ -2932,10 +3052,10 @@ if ($versionPS -ge ([version]'6.0')) {
     $listOutput = New-Object -TypeName 'System.Collections.ArrayList'
 }
 
-for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-    # Cluster #: $intCounterA
+for ($intCounterB = 0; $intCounterB -lt $intNumberOfClusters; $intCounterB++) {
+    # Cluster #: $intCounterB
 
-    $arrSortedItems = $hashtableClustersToItemsAndDistances.Item($intCounterA) | Sort-Object -Property 'DistanceFromCentroid'
+    $arrSortedItems = $hashtableKToClusterArtifacts.Item($intNumberOfClusters).HashtableClustersToItemsAndDistances.Item($intCounterB) | Sort-Object -Property 'DistanceFromCentroid'
     $intMostRepresentativeItem = ($arrSortedItems[0]).ItemNumber
     $arrNMostRepresentativeItems = @($arrSortedItems | Select-Object -First $NSizeForMostRepresentativeDataPoints | ForEach-Object { $_.ItemNumber })
     $strNMostRepresentativeItems = $arrNMostRepresentativeItems -Join '; '
