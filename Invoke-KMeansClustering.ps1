@@ -2747,14 +2747,16 @@ if ($null -ne $DoNotCalculateExtendedStatistics) {
 }
 
 # Display warning/information messages if necessary
-if ($boolDoNotCalculateExtendedStatistics -eq $true) {
-    Write-Warning 'The script is running without calculating the silhouette score, Davies-Bouldin index, and Calinski-Harabasz index; this will significantly speed up execution, but may lead to a less-ideal selection for the number of clusters.'
-    if (([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $false) -and ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false)) {
-        Write-Warning 'Additionally, the script is working in unsupervised mode; it will do its best to select the best number of clusters and output the results to a CSV file, but no statistics and no Excel workbook that contains information about alternative numbers of clusters will be created. Combined with the fact that the silhouette score, Davies-Bouldin index, and Calinski-Harabasz index are not being calculated, running unsupervised in this manner is not a recommended mode of execution.'
-    }
-} else {
-    if (([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $false) -and ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false)) {
-        Write-Information 'The script is working in unsupervised mode; it will automatically select the best number of clusters and output the results to a CSV file, but no statistics and no Excel workbook that contains information about alternative numbers of clusters will be created.'
+if (($null -ne $NumberOfClusters) -and ($NumberOfClusters -gt 0)) {
+    if ($boolDoNotCalculateExtendedStatistics -eq $true) {
+        Write-Warning 'The script is running without calculating the silhouette score, Davies-Bouldin index, and Calinski-Harabasz index; this will significantly speed up execution, but may lead to a less-ideal selection for the number of clusters.'
+        if (([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $true) -and ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $true)) {
+            Write-Warning 'Additionally, the script is working in unsupervised mode; it will do its best to select the best number of clusters and output the results to a CSV file, but no statistics and no Excel workbook that contains information about alternative numbers of clusters will be created. Combined with the fact that the silhouette score, Davies-Bouldin index, and Calinski-Harabasz index are not being calculated, running unsupervised in this manner is not a recommended mode of execution.'
+        }
+    } else {
+        if (([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $true) -and ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $true)) {
+            Write-Information 'The script is working in unsupervised mode; it will automatically select the best number of clusters and output the results to a CSV file, but no statistics and no Excel workbook that contains information about alternative numbers of clusters will be created.'
+        }
     }
 }
 
