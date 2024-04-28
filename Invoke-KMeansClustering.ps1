@@ -2243,6 +2243,9 @@ function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
         } else {
             Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable of silhouette scores for each item...')
         }
+        if (@($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Keys).Count -eq 0) {
+            Write-Information 'NOTE: The first time the silhouette scores are calculated, it may take a while; please be patient! The script needs to calculate the Euclidean distances between items, but it will cache them for future use.'
+        }
         $hashtableItemsToSilhouetteScores = @{}
 
         $intCounterMax = $ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length
@@ -2723,12 +2726,14 @@ foreach ($strPackageName in $arrNuGetPackages) {
 
 #region Determine upper and lower bounds for the number of clusters ################
 if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
+    # Number of clusters was not specified
     $intMinNumberOfClusters = 1
     $intMaxNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count) * 1.2))
     if ($intMaxNumberOfClusters -gt $arrInputCSV.Count) {
         $intMaxNumberOfClusters = $arrInputCSV.Count
     }
 } else {
+    # Number of clusters was specified
     $intMinNumberOfClusters = $NumberOfClusters
     $intMaxNumberOfClusters = $NumberOfClusters
 }
@@ -2844,7 +2849,11 @@ if ($intCounterAMax -ge 1) {
 $boolBiasedNumberOfClusters = $false
 $doubleMaxSihlouetteScore = $arrKeyStatistics | Sort-Object -Property 'SilhouetteScore' -Descending | Select-Object -First 1 -ExpandProperty 'SilhouetteScore'
 if ($doubleMaxSihlouetteScore -lt 0.4) {
-    Write-Warning ('The maximum silhouette score is less than 0.4 (' + [string]::Format('{0:0.00}', $doubleMaxSihlouetteScore) + '); the data may not be well-clustered.')
+    if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
+        Write-Warning ('The maximum silhouette score was ' + [string]::Format('{0:0.00}', $doubleMaxSihlouetteScore) + ', which is less than 0.4; the data may not be well-clustered.')
+    } else {
+        Write-Warning ('The silhouette score was ' + [string]::Format('{0:0.00}', $doubleMaxSihlouetteScore) + ', which is less than 0.4; the data may not be well-clustered.')
+    }
     # The data may not be well-clustered; rank the number of clusters to bias toward more clusters
     $boolBiasedNumberOfClusters = $true
     for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
@@ -2862,7 +2871,10 @@ if ($doubleMaxSihlouetteScore -lt 0.4) {
     }
 
     if ($boolIdealPointFound -eq $false) {
-        Write-Warning 'Could not find the ideal maximum point for the number of clusters; using the last point instead.'
+        if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
+            # Number of clusters was not specified
+            Write-Warning 'Could not find the ideal maximum point for the number of clusters; using the last point instead.'
+        }
         $intCounterB = $intCounterAMax
     }
 
