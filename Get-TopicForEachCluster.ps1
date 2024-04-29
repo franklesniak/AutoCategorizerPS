@@ -1,5 +1,5 @@
 # Get-TopicForEachCluster.ps1
-# Version: 1.0.20240407.0
+# Version: 1.0.20240428.0
 
 <#
 .SYNOPSIS
@@ -3795,6 +3795,12 @@ for ($intRowIndex = 0; $intRowIndex -lt $intTotalItems; $intRowIndex++) {
     }
     if ($OutputDataFromAllItemsInCluster -eq $true) {
         if ($arrTexts.Count -eq 0) {
+            $refCountOfItemsInCluster = [ref]((($arrClusterMetadataCSV[$intRowIndex]).PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' -and $_.Name -eq $ClusterMetadataFieldNameCountOfItemsInCluster }).Value)
+            $refIndicesOfAllItemsInCluster = [ref]((($arrClusterMetadataCSV[$intRowIndex]).PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' -and $_.Name -eq $ClusterMetadataFieldNameIndiciesOfAllItemsInCluster }).Value)
+
+            $intCountOfItemsInCluster = [int]($refCountOfItemsInCluster.Value)
+            $arrIndicesOfAllItemsInCluster = Split-StringOnLiteralString ($refIndicesOfAllItemsInCluster.Value) $ClusterMetadataIndicesSeparator
+
             for ($intCounterB = 0; $intCounterB -lt $intCountOfItemsInCluster; $intCounterB++) {
                 $intIndex = [int]($arrIndicesOfAllItemsInCluster[$intCounterB])
                 $arrTexts += (($arrUnstructuredTextDataCSV[$intIndex]).PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' -and $_.Name -eq $UnstructuredTextDataFieldNameContainingTextData }).Value
