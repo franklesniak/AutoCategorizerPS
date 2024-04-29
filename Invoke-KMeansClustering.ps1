@@ -3146,7 +3146,10 @@ if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEach
 #region Select best number of clusters #############################################
 $PSCustomObjectTopCluster = $arrKeyStatistics | Sort-Object -Property 'CompositeRank' | Select-Object -First 1
 $intBestNumberOfClusters = $PSCustomObjectTopCluster.NumberOfClusters
-Write-Information ('Best number of clusters: ' + $intBestNumberOfClusters)
+if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
+    # Number of clusters was not specified
+    Write-Information ('Best number of clusters: ' + $intBestNumberOfClusters)
+}
 #endregion Select best number of clusters #############################################
 
 #region Generate output CSV for selected number of clusters ########################
