@@ -3311,7 +3311,7 @@ $queueLaggingTimestamps = New-Object System.Collections.Queue
 $queueLaggingTimestamps.Enqueue($timedateStartOfLoop)
 #endregion Collect Stats/Objects Needed for Writing Progress ##########################
 
-Write-Information ($strProgressActivity + ': ' + $strProgressStatus + '...')
+Write-Information ($strProgressActivity + '...')
 
 for ($intRowIndex = 0; $intRowIndex -lt $arrInputCSV.Count; $intRowIndex++) {
     #region Report Progress ########################################################
