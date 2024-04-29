@@ -1,5 +1,5 @@
 # Invoke-KMeansClustering.ps1
-# Version: 1.0.20240409.0
+# Version: 2.0.20240428.0
 
 <#
 .SYNOPSIS
@@ -26,23 +26,112 @@ Specifies the name of the field in the input CSV file containing the embeddings.
 embeddings must be stored as a semicolon-separated string of numbers.
 
 .PARAMETER OutputCSVPath
-Specifies the path to the output CSV file that will list the K-means cluster metadata.
+Specifies the path to the output CSV file that will list the K-means cluster metadata
+for the selected number of clusters.
+
+.PARAMETER OutputCSVPathForAllClusterStatistics
+Optional but highly recommended parameter; specifies the path to the output CSV file
+that will list the K-means cluster statistics for varying numbers of clusters. This
+file will contain the Within-Cluster Sum of Squares (WCSS), the second derivative of
+the WCSS, the Silhouette Score, the Davies-Bouldin Score, and the Calinski-Harabasz
+Score for each number of clusters tested. It will also show the ranking applied to
+each statistics and an overall composite index that reflects how the number of clusters
+was automatically selected.
+
+If running unsupervised, it is wise to review the statistics in this file to ensure
+that the number of clusters selected is appropriate.
+
+.PARAMETER OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters
+Optional but highly recommended parameter; specifies the path to the output Excel
+workbook that will contain a worksheet for each number of clusters tested. Each
+worksheet will contain the cluster metadata for that number of clusters. This workbook
+is useful for visually inspecting the clusters and the items that belong to each
+cluster, and it is useful if you want to "override" the selection of the number of
+clusters, as you can easily save a worksheet in the Excel workbook as a CSV.
 
 .PARAMETER NSizeForMostRepresentativeDataPoints
 Specifies the number of data points to include in the output CSV file that are closest
 to the center of each cluster. The default value is 5.
 
 .PARAMETER NumberOfClusters
-Specifies the number of clusters that you want the function to use. The default value is
-the square-root of $NumberOfDataPoints, rounded up, where $NumberOfDataPoints is the
-number of rows in the input CSV file.
+Optional parameter; allows the user to specify the number of clusters they want the
+script to use. When this parameter is not specified, the script will use the "elbow
+method" to determine the optimal number of clusters.
+
+.PARAMETER DoNotCalculateExtendedStatistics
+Optional parameter; when specified, the script will not calculate the Silhouette Score,
+Davies-Bouldin Score, and Calinski-Harabasz Score for each number of clusters tested.
+This can be useful if you are only interested in the Within-Cluster Sum of Squares
+(WCSS) and the second derivative of the WCSS. However, it can lead to poorer-quality
+selection of the number of clusters, which leads to poorer clustering results.
+
+On the plus side, it significantly reduces the time it takes to run the script.
+
+.PARAMETER DoNotCheckForModuleUpdates
+Optional parameter; when specified, the script will not check for updates to the
+required modules. This can be useful if you are running the script in an environment
+where you do not have internet access, or if you are running the script in an
+environment where you are not allowed to install modules.
+
+Or maybe you don't care if your modules are up to date - in which case, you can save
+yourself a few seconds by specifying this parameter.
+
+.PARAMETER WeightingFactorForNumberOfClusters
+Optional parameter; specifies the weighting factor to apply to the number of clusters
+when calculating the composite index for selecting the number of clusters. The default
+value is 14. The number of clusters is only weighted when the maximum silhouette score
+across all iterations is less than 0.4, indicating potential poor clustering. When this
+happens, the script biases toward selecting more clusters.
+
+.PARAMETER WeightingFactorForWCSS
+Optional parameter; specifies the weighting factor to apply to the Within-Cluster Sum
+of Squares (WCSS) when calculating the composite index for selecting the number of
+clusters. The default value is 3. A small default weighting is used because a low WCSS
+is generally a good indicator of good clustering; however, the WCSS will almost always
+be low when the number of clusters is high, which can lead to "over-fitting".
+
+.PARAMETER WeightingFactorForWCSSSecondDerivative
+Optional parameter; specifies the weighting factor to apply to the second derivative of
+the Within-Cluster Sum of Squares (WCSS) when calculating the composite index for
+selecting the number of clusters. The default value is 40. The second derivative of the
+WCSS indicates the change in slope, so the highest second derivative may indicate the
+"elbow point" in the WCSS plot, which is used to select the number of clusters.
+
+.PARAMETER WeightingFactorForSihouetteScore
+Optional parameter; specifies the weighting factor to apply to the Silhouette Score when
+calculating the composite index for selecting the number of clusters. The default value
+is 18. The Silhouette Score is a measure of how similar an object is to its own cluster
+compared to other clusters. Silhouette Scores range from -1 to 1, with a high value
+indicating that the object is well matched to its own cluster and poorly matched to
+neighboring clusters.
+
+.PARAMETER WeightingFactorForDaviesBouldinScore
+Optional parameter; specifies the weighting factor to apply to the Davies-Bouldin Score
+when calculating the composite index for selecting the number of clusters. The default
+value is 13. The Davies-Bouldin Score is a measure of the average similarity between
+each cluster and its most similar cluster. The lower the score, the better the
+clustering.
+
+.PARAMETER WeightingFactorForCalinskiHarabaszScore
+Optional parameter; specifies the weighting factor to apply to the Calinski-Harabasz
+Score when calculating the composite index for selecting the number of clusters. The
+default value is 12. The Calinski-Harabasz Score is a measure of how dense the clusters
+are and how far apart they are from each other. A higher score indicates better
+clustering.
 
 .EXAMPLE
-PS C:\> .\Invoke-KMeansClustering.ps1 -InputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - With Embeddings.csv' -DataFieldNameContainingEmbeddings 'Embeddings' -OutputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata.csv'
+PS C:\> .\Invoke-KMeansClustering.ps1 -InputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - With Embeddings.csv' -DataFieldNameContainingEmbeddings 'Embeddings' -OutputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata.csv' -OutputCSVPathForAllClusterStatistics 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Statistics.csv' -OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Info For Varying Numbers of Clusters.xlsx' -InformationAction Continue
 
 This example reads in a CSV file containing embeddings and uses the K-Means
-clustering algorithm to group the data into clusters. The script then creates a new CSV
-file containing the cluster metadata.
+clustering algorithm to group the data into clusters. It will perform the clustering
+operation for a varying number of clusters from 1 to n, where n is the square root of
+the number of items in the data set, plus 20%, rounded up to the nearest integer. The
+script determines which number of clusters is optimal using the "elbow method" and
+by incorporating additional cluster statistics such as the Silhouette Score, Davies-
+Bouldin Score, and Calinski-Harabasz Score. The script then creates a new CSV file
+containing the cluster metadata, a CSV file containing the cluster statistics for
+varying numbers of clusters, and an Excel workbook containing a worksheet for each
+number of clusters tested.
 
 .OUTPUTS
 None
@@ -74,8 +163,18 @@ param (
     [Parameter(Mandatory = $true)][string]$InputCSVPath,
     [Parameter(Mandatory = $false)][string]$DataFieldNameContainingEmbeddings = 'Embeddings',
     [Parameter(Mandatory = $true)][string]$OutputCSVPath,
+    [Parameter(Mandatory = $false)][string]$OutputCSVPathForAllClusterStatistics,
+    [Parameter(Mandatory = $false)][string]$OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters,
     [Parameter(Mandatory = $false)][int]$NSizeForMostRepresentativeDataPoints = 5,
-    [Parameter(Mandatory = $false)][int]$NumberOfClusters
+    [Parameter(Mandatory = $false)][ValidateScript({ ($_ -ge 2) -or ($_ -eq 0) })][int]$NumberOfClusters,
+    [Parameter(Mandatory = $false)][switch]$DoNotCalculateExtendedStatistics,
+    [Parameter(Mandatory = $false)][switch]$DoNotCheckForModuleUpdates,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForNumberOfClusters = 14,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSS = 3,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSSSecondDerivative = 40,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForSihouetteScore = 18,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForDaviesBouldinScore = 13,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForCalinskiHarabaszScore = 12
 )
 
 function Get-PSVersion {
@@ -246,6 +345,627 @@ function Split-StringOnLiteralString {
     }
 }
 
+function Get-PowerShellModuleUsingHashtable {
+    <#
+    .SYNOPSIS
+    Gets a list of installed PowerShell modules for each entry in a hashtable.
+
+    .DESCRIPTION
+    The Get-PowerShellModuleUsingHashtable function steps through each entry in the
+    supplied hashtable and gets a list of installed PowerShell modules for each entry.
+
+    .PARAMETER ReferenceToHashtable
+    Is a reference to a hashtable. The value of the reference should be a hashtable
+    with keys that are the names of PowerShell modules and values that are initialized
+    to be enpty arrays.
+
+    .EXAMPLE
+    $hashtableModuleNameToInstalledModules = @{}
+    $hashtableModuleNameToInstalledModules.Add('PnP.PowerShell', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Authentication', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Groups', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Users', @())
+    $refHashtableModuleNameToInstalledModules = [ref]$hashtableModuleNameToInstalledModules
+    Get-PowerShellModuleUsingHashtable -ReferenceToHashtable $refHashtableModuleNameToInstalledModules
+
+    This example gets the list of installed PowerShell modules for each of the four
+    modules listed in the hashtable. The list of each respective module is stored in
+    the value of the hashtable entry for that module.
+
+    .OUTPUTS
+    None
+    #>
+
+    #region License ################################################################
+    # Copyright (c) 2024 Frank Lesniak
+    #
+    # Permission is hereby granted, free of charge, to any person obtaining a copy of
+    # this software and associated documentation files (the "Software"), to deal in the
+    # Software without restriction, including without limitation the rights to use,
+    # copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+    # Software, and to permit persons to whom the Software is furnished to do so,
+    # subject to the following conditions:
+    #
+    # The above copyright notice and this permission notice shall be included in all
+    # copies or substantial portions of the Software.
+    #
+    # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+    # FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+    # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+    # AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+    #endregion License ################################################################
+
+    #region DownloadLocationNotice  ################################################
+    # The most up-to-date version of this script can be found on the author's GitHub
+    # repository at https://github.com/franklesniak/PowerShell_Resources
+    #endregion DownloadLocationNotice  ################################################
+
+    # Version 1.0.20240401.0
+
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)][ref]$ReferenceToHashtable
+    )
+
+    $VerbosePreferenceAtStartOfFunction = $VerbosePreference
+
+    $arrModulesToGet = @(($ReferenceToHashtable.Value).Keys)
+
+    for ($intCounter = 0; $intCounter -lt $arrModulesToGet.Count; $intCounter++) {
+        Write-Verbose ('Checking for ' + $arrModulesToGet[$intCounter] + ' module...')
+        $VerbosePreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+        ($ReferenceToHashtable.Value).Item($arrModulesToGet[$intCounter]) = @(Get-Module -Name ($arrModulesToGet[$intCounter]) -ListAvailable)
+        $VerbosePreference = $VerbosePreferenceAtStartOfFunction
+    }
+}
+
+function Test-PowerShellModuleInstalledUsingHashtable {
+    <#
+    .SYNOPSIS
+    Tests to see if a PowerShell module is installed based on entries in a hashtable.
+    If the PowerShell module is not installed, an error or warning message may
+    optionally be displayed.
+
+    .DESCRIPTION
+    The Test-PowerShellModuleInstalledUsingHashtable function steps through each entry
+    in the supplied hashtable and, if there are any modules not installed, it
+    optionally throws an error or warning for each module that is not installed. If all
+    modules are installed, the function returns $true; otherwise, if any module is not
+    installed, the function returns $false.
+
+    .PARAMETER ReferenceToHashtableOfInstalledModules
+    Is a reference to a hashtable. The hashtable must have keys that are the names of
+    PowerShell modules with each key's value populated with arrays of
+    ModuleInfoGrouping objects (the result of Get-Module).
+
+    .PARAMETER ThrowErrorIfModuleNotInstalled
+    Is a switch parameter. If this parameter is specified, an error is thrown for each
+    module that is not installed. If this parameter is not specified, no error is
+    thrown.
+
+    .PARAMETER ThrowWarningIfModuleNotInstalled
+    Is a switch parameter. If this parameter is specified, a warning is thrown for each
+    module that is not installed. If this parameter is not specified, or if the
+    ThrowErrorIfModuleNotInstalled parameter was specified, no warning is thrown.
+
+    .PARAMETER ReferenceToHashtableOfCustomNotInstalledMessages
+    Is a reference to a hashtable. The hashtable must have keys that are custom error
+    or warning messages (string) to be displayed if one or more modules are not
+    installed. The value for each key must be an array of PowerShell module names
+    (strings) relevant to that error or warning message.
+
+    If this parameter is not supplied, or if a custom error or warning message is not
+    supplied in the hashtable for a given module, the script will default to using the
+    following message:
+
+    <MODULENAME> module not found. Please install it and then try again.
+    You can install the <MODULENAME> PowerShell module from the PowerShell Gallery by
+    running the following command:
+    Install-Module <MODULENAME>;
+
+    If the installation command fails, you may need to upgrade the version of
+    PowerShellGet. To do so, run the following commands, then restart PowerShell:
+    Set-ExecutionPolicy Bypass -Scope Process -Force;
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;
+    Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;
+
+    .PARAMETER ReferenceToArrayOfMissingModules
+    Is a reference to an array. The array must be initialized to be empty. If any
+    modules are not installed, the names of those modules are added to the array.
+
+    .EXAMPLE
+    $hashtableModuleNameToInstalledModules = @{}
+    $hashtableModuleNameToInstalledModules.Add('PnP.PowerShell', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Authentication', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Groups', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Users', @())
+    $refHashtableModuleNameToInstalledModules = [ref]$hashtableModuleNameToInstalledModules
+    Get-PowerShellModuleUsingHashtable -ReferenceToHashtable $refHashtableModuleNameToInstalledModules
+    $hashtableCustomNotInstalledMessageToModuleNames = @{}
+    $strGraphNotInstalledMessage = 'Microsoft.Graph.Authentication, Microsoft.Graph.Groups, and/or Microsoft.Graph.Users modules were not found. Please install the full Microsoft.Graph module and then try again.' + [System.Environment]::NewLine + 'You can install the Microsoft.Graph PowerShell module from the PowerShell Gallery by running the following command:' + [System.Environment]::NewLine + 'Install-Module Microsoft.Graph;' + [System.Environment]::NewLine + [System.Environment]::NewLine + 'If the installation command fails, you may need to upgrade the version of PowerShellGet. To do so, run the following commands, then restart PowerShell:' + [System.Environment]::NewLine + 'Set-ExecutionPolicy Bypass -Scope Process -Force;' + [System.Environment]::NewLine + '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;' + [System.Environment]::NewLine + 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;' + [System.Environment]::NewLine + 'Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;' + [System.Environment]::NewLine + [System.Environment]::NewLine
+    $hashtableCustomNotInstalledMessageToModuleNames.Add($strGraphNotInstalledMessage, @('Microsoft.Graph.Authentication', 'Microsoft.Graph.Groups', 'Microsoft.Graph.Users'))
+    $refhashtableCustomNotInstalledMessageToModuleNames = [ref]$hashtableCustomNotInstalledMessageToModuleNames
+    $boolResult = Test-PowerShellModuleInstalledUsingHashtable -ReferenceToHashtableOfInstalledModules $refHashtableModuleNameToInstalledModules -ThrowErrorIfModuleNotInstalled -ReferenceToHashtableOfCustomNotInstalledMessages $refhashtableCustomNotInstalledMessageToModuleNames
+
+    This example checks to see if the PnP.PowerShell, Microsoft.Graph.Authentication,
+    Microsoft.Graph.Groups, and Microsoft.Graph.Users modules are installed. If any of
+    these modules are not installed, an error is thrown for the PnP.PowerShell module
+    or the group of Microsoft.Graph modules, respectively, and $boolResult is set to
+    $false. If all modules are installed, $boolResult is set to $true.
+
+    .OUTPUTS
+    [boolean] - Returns $true if all modules are installed; otherwise, returns $false.
+    #>
+
+    #region License ################################################################
+    # Copyright (c) 2024 Frank Lesniak
+    #
+    # Permission is hereby granted, free of charge, to any person obtaining a copy of
+    # this software and associated documentation files (the "Software"), to deal in the
+    # Software without restriction, including without limitation the rights to use,
+    # copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+    # Software, and to permit persons to whom the Software is furnished to do so,
+    # subject to the following conditions:
+    #
+    # The above copyright notice and this permission notice shall be included in all
+    # copies or substantial portions of the Software.
+    #
+    # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+    # FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+    # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+    # AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+    #endregion License ################################################################
+
+    #region DownloadLocationNotice  ################################################
+    # The most up-to-date version of this script can be found on the author's GitHub
+    # repository at https://github.com/franklesniak/PowerShell_Resources
+    #endregion DownloadLocationNotice  ################################################
+
+    # Version 1.1.20240401.0
+
+    [CmdletBinding()]
+    [OutputType([Boolean])]
+    param (
+        [Parameter(Mandatory = $true)][ref]$ReferenceToHashtableOfInstalledModules,
+        [switch]$ThrowErrorIfModuleNotInstalled,
+        [switch]$ThrowWarningIfModuleNotInstalled,
+        [Parameter(Mandatory = $false)][ref]$ReferenceToHashtableOfCustomNotInstalledMessages,
+        [Parameter(Mandatory = $false)][ref]$ReferenceToArrayOfMissingModules
+    )
+
+    $boolThrowErrorForMissingModule = $false
+    $boolThrowWarningForMissingModule = $false
+
+    if ($ThrowErrorIfModuleNotInstalled.IsPresent -eq $true) {
+        $boolThrowErrorForMissingModule = $true
+    } elseif ($ThrowWarningIfModuleNotInstalled.IsPresent -eq $true) {
+        $boolThrowWarningForMissingModule = $true
+    }
+
+    $boolResult = $true
+
+    $hashtableMessagesToThrowForMissingModule = @{}
+    $hashtableModuleNameToCustomMessageToThrowForMissingModule = @{}
+    if ($null -ne $ReferenceToHashtableOfCustomNotInstalledMessages) {
+        $arrMessages = @(($ReferenceToHashtableOfCustomNotInstalledMessages.Value).Keys)
+        foreach ($strMessage in $arrMessages) {
+            $hashtableMessagesToThrowForMissingModule.Add($strMessage, $false)
+
+            ($ReferenceToHashtableOfCustomNotInstalledMessages.Value).Item($strMessage) | ForEach-Object {
+                $hashtableModuleNameToCustomMessageToThrowForMissingModule.Add($_, $strMessage)
+            }
+        }
+    }
+
+    $arrModuleNames = @(($ReferenceToHashtableOfInstalledModules.Value).Keys)
+    foreach ($strModuleName in $arrModuleNames) {
+        $arrInstalledModules = @(($ReferenceToHashtableOfInstalledModules.Value).Item($strModuleName))
+        if ($arrInstalledModules.Count -eq 0) {
+            $boolResult = $false
+
+            if ($hashtableModuleNameToCustomMessageToThrowForMissingModule.ContainsKey($strModuleName) -eq $true) {
+                $strMessage = $hashtableModuleNameToCustomMessageToThrowForMissingModule.Item($strModuleName)
+                $hashtableMessagesToThrowForMissingModule.Item($strMessage) = $true
+            } else {
+                $strMessage = $strModuleName + ' module not found. Please install it and then try again.' + [System.Environment]::NewLine + 'You can install the ' + $strModuleName + ' PowerShell module from the PowerShell Gallery by running the following command:' + [System.Environment]::NewLine + 'Install-Module ' + $strModuleName + ';' + [System.Environment]::NewLine + [System.Environment]::NewLine + 'If the installation command fails, you may need to upgrade the version of PowerShellGet. To do so, run the following commands, then restart PowerShell:' + [System.Environment]::NewLine + 'Set-ExecutionPolicy Bypass -Scope Process -Force;' + [System.Environment]::NewLine + '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;' + [System.Environment]::NewLine + 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;' + [System.Environment]::NewLine + 'Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;' + [System.Environment]::NewLine + [System.Environment]::NewLine
+                $hashtableMessagesToThrowForMissingModule.Add($strMessage, $true)
+            }
+
+            if ($null -ne $ReferenceToArrayOfMissingModules) {
+                ($ReferenceToArrayOfMissingModules.Value) += $strModuleName
+            }
+        }
+    }
+
+    if ($boolThrowErrorForMissingModule -eq $true) {
+        $arrMessages = @($hashtableMessagesToThrowForMissingModule.Keys)
+        foreach ($strMessage in $arrMessages) {
+            if ($hashtableMessagesToThrowForMissingModule.Item($strMessage) -eq $true) {
+                Write-Error $strMessage
+            }
+        }
+    } elseif ($boolThrowWarningForMissingModule -eq $true) {
+        $arrMessages = @($hashtableMessagesToThrowForMissingModule.Keys)
+        foreach ($strMessage in $arrMessages) {
+            if ($hashtableMessagesToThrowForMissingModule.Item($strMessage) -eq $true) {
+                Write-Warning $strMessage
+            }
+        }
+    }
+
+    return $boolResult
+}
+
+function Test-PowerShellModuleUpdatesAvailableUsingHashtable {
+    <#
+    .SYNOPSIS
+    Tests to see if updates are available for a PowerShell module based on entries in a
+    hashtable. If updates are available for a PowerShell module, an error or warning
+    message may optionally be displayed.
+
+    .DESCRIPTION
+    The Test-PowerShellModuleUpdatesAvailableUsingHashtable function steps through each
+    entry in the supplied hashtable and, if there are updates available, it optionally
+    throws an error or warning for each module that has updates available. If all
+    modules are installed and up to date, the function returns $true; otherwise, if any
+    module is not installed or not up to date, the function returns $false.
+
+    .PARAMETER ReferenceToHashtableOfInstalledModules
+    Is a reference to a hashtable. The hashtable must have keys that are the names of
+    PowerShell modules with each key's value populated with arrays of
+    ModuleInfoGrouping objects (the result of Get-Module).
+
+    .PARAMETER ThrowErrorIfModuleNotInstalled
+    Is a switch parameter. If this parameter is specified, an error is thrown for each
+    module that is not installed. If this parameter is not specified, no error is
+    thrown.
+
+    .PARAMETER ThrowWarningIfModuleNotInstalled
+    Is a switch parameter. If this parameter is specified, a warning is thrown for each
+    module that is not installed. If this parameter is not specified, or if the
+    ThrowErrorIfModuleNotInstalled parameter was specified, no warning is thrown.
+
+    .PARAMETER ThrowErrorIfModuleNotUpToDate
+    Is a switch parameter. If this parameter is specified, an error is thrown for each
+    module that is not up to date. If this parameter is not specified, no error is
+    thrown.
+
+    .PARAMETER ThrowWarningIfModuleNotUpToDate
+    Is a switch parameter. If this parameter is specified, a warning is thrown for each
+    module that is not up to date. If this parameter is not specified, or if the
+    ThrowErrorIfModuleNotUpToDate parameter was specified, no warning is thrown.
+
+    .PARAMETER ReferenceToHashtableOfCustomNotInstalledMessages
+    Is a reference to a hashtable. The hashtable must have keys that are custom error
+    or warning messages (string) to be displayed if one or more modules are not
+    installed. The value for each key must be an array of PowerShell module names
+    (strings) relevant to that error or warning message.
+
+    If this parameter is not supplied, or if a custom error or warning message is not
+    supplied in the hashtable for a given module, the script will default to using the
+    following message:
+
+    <MODULENAME> module not found. Please install it and then try again.
+    You can install the <MODULENAME> PowerShell module from the PowerShell Gallery by
+    running the following command:
+    Install-Module <MODULENAME>;
+
+    If the installation command fails, you may need to upgrade the version of
+    PowerShellGet. To do so, run the following commands, then restart PowerShell:
+    Set-ExecutionPolicy Bypass -Scope Process -Force;
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;
+    Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;
+
+    .PARAMETER ReferenceToHashtableOfCustomNotUpToDateMessages
+    Is a reference to a hashtable. The hashtable must have keys that are custom error
+    or warning messages (string) to be displayed if one or more modules are not
+    up to date. The value for each key must be an array of PowerShell module names
+    (strings) relevant to that error or warning message.
+
+    If this parameter is not supplied, or if a custom error or warning message is not
+    supplied in the hashtable for a given module, the script will default to using the
+    following message:
+
+    A newer version of the <MODULENAME> PowerShell module is available. Please consider
+    updating it by running the following command:
+    Install-Module <MODULENAME> -Force;
+
+    If the installation command fails, you may need to upgrade the version of
+    PowerShellGet. To do so, run the following commands, then restart PowerShell:
+    Set-ExecutionPolicy Bypass -Scope Process -Force;
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;
+    Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;
+
+    .PARAMETER ReferenceToArrayOfMissingModules
+    Is a reference to an array. The array must be initialized to be empty. If any
+    modules are not installed, the names of those modules are added to the array.
+
+    .PARAMETER ReferenceToArrayOfOutOfDateModules
+    Is a reference to an array. The array must be initialized to be empty. If any
+    modules are not up to date, the names of those modules are added to the array.
+
+    .EXAMPLE
+    $hashtableModuleNameToInstalledModules = @{}
+    $hashtableModuleNameToInstalledModules.Add('PnP.PowerShell', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Authentication', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Groups', @())
+    $hashtableModuleNameToInstalledModules.Add('Microsoft.Graph.Users', @())
+    $refHashtableModuleNameToInstalledModules = [ref]$hashtableModuleNameToInstalledModules
+    Get-PowerShellModuleUsingHashtable -ReferenceToHashtable $refHashtableModuleNameToInstalledModules
+    $hashtableCustomNotInstalledMessageToModuleNames = @{}
+    $strGraphNotInstalledMessage = 'Microsoft.Graph.Authentication, Microsoft.Graph.Groups, and/or Microsoft.Graph.Users modules were not found. Please install the full Microsoft.Graph module and then try again.' + [System.Environment]::NewLine + 'You can install the Microsoft.Graph PowerShell module from the PowerShell Gallery by running the following command:' + [System.Environment]::NewLine + 'Install-Module Microsoft.Graph;' + [System.Environment]::NewLine + [System.Environment]::NewLine + 'If the installation command fails, you may need to upgrade the version of PowerShellGet. To do so, run the following commands, then restart PowerShell:' + [System.Environment]::NewLine + 'Set-ExecutionPolicy Bypass -Scope Process -Force;' + [System.Environment]::NewLine + '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;' + [System.Environment]::NewLine + 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;' + [System.Environment]::NewLine + 'Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;' + [System.Environment]::NewLine + [System.Environment]::NewLine
+    $hashtableCustomNotInstalledMessageToModuleNames.Add($strGraphNotInstalledMessage, @('Microsoft.Graph.Authentication', 'Microsoft.Graph.Groups', 'Microsoft.Graph.Users'))
+    $refhashtableCustomNotInstalledMessageToModuleNames = [ref]$hashtableCustomNotInstalledMessageToModuleNames
+    $hashtableCustomNotUpToDateMessageToModuleNames = @{}
+    $strGraphNotUpToDateMessage = 'A newer version of the Microsoft.Graph.Authentication, Microsoft.Graph.Groups, and/or Microsoft.Graph.Users modules was found. Please consider updating it by running the following command:' + [System.Environment]::NewLine + 'Install-Module Microsoft.Graph -Force;' + [System.Environment]::NewLine + [System.Environment]::NewLine + 'If the installation command fails, you may need to upgrade the version of PowerShellGet. To do so, run the following commands, then restart PowerShell:' + [System.Environment]::NewLine + 'Set-ExecutionPolicy Bypass -Scope Process -Force;' + [System.Environment]::NewLine + '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;' + [System.Environment]::NewLine + 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;' + [System.Environment]::NewLine + 'Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;' + [System.Environment]::NewLine + [System.Environment]::NewLine
+    $hashtableCustomNotUpToDateMessageToModuleNames.Add($strGraphNotUpToDateMessage, @('Microsoft.Graph.Authentication', 'Microsoft.Graph.Groups', 'Microsoft.Graph.Users'))
+    $refhashtableCustomNotUpToDateMessageToModuleNames = [ref]$hashtableCustomNotUpToDateMessageToModuleNames
+    $boolResult = Test-PowerShellModuleUpdatesAvailableUsingHashtable -ReferenceToHashtableOfInstalledModules $refHashtableModuleNameToInstalledModules -ThrowErrorIfModuleNotInstalled -ThrowWarningIfModuleNotUpToDate -ReferenceToHashtableOfCustomNotInstalledMessages $refhashtableCustomNotInstalledMessageToModuleNames -ReferenceToHashtableOfCustomNotUpToDateMessages $refhashtableCustomNotUpToDateMessageToModuleNames
+
+    This example checks to see if the PnP.PowerShell, Microsoft.Graph.Authentication,
+    Microsoft.Graph.Groups, and Microsoft.Graph.Users modules are installed. If any of
+    these modules are not installed, an error is thrown for the PnP.PowerShell module
+    or the group of Microsoft.Graph modules, respectively, and $boolResult is set to
+    $false. If any of these modules are installed but not up to date, a warning
+    message is thrown for the PnP.PowerShell module or the group of Microsoft.Graph
+    modules, respectively, and $boolResult is set to false. If all modules are
+    installed and up to date, $boolResult is set to $true.
+
+    .OUTPUTS
+    [boolean] - Returns $true if all modules are installed and up to date; otherwise,
+    returns $false.
+
+    .NOTES
+    Requires PowerShell v5.0 or newer
+    #>
+
+    #region License ################################################################
+    # Copyright (c) 2024 Frank Lesniak
+    #
+    # Permission is hereby granted, free of charge, to any person obtaining a copy of
+    # this software and associated documentation files (the "Software"), to deal in the
+    # Software without restriction, including without limitation the rights to use,
+    # copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+    # Software, and to permit persons to whom the Software is furnished to do so,
+    # subject to the following conditions:
+    #
+    # The above copyright notice and this permission notice shall be included in all
+    # copies or substantial portions of the Software.
+    #
+    # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+    # FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+    # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+    # AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+    #endregion License ################################################################
+
+    #region DownloadLocationNotice  ################################################
+    # The most up-to-date version of this script can be found on the author's GitHub
+    # repository at https://github.com/franklesniak/PowerShell_Resources
+    #endregion DownloadLocationNotice  ################################################
+
+    # Version 1.1.20240401.0
+
+    [CmdletBinding()]
+    [OutputType([Boolean])]
+    param (
+        [Parameter(Mandatory = $true)][ref]$ReferenceToHashtableOfInstalledModules,
+        [switch]$ThrowErrorIfModuleNotInstalled,
+        [switch]$ThrowWarningIfModuleNotInstalled,
+        [switch]$ThrowErrorIfModuleNotUpToDate,
+        [switch]$ThrowWarningIfModuleNotUpToDate,
+        [Parameter(Mandatory = $false)][ref]$ReferenceToHashtableOfCustomNotInstalledMessages,
+        [Parameter(Mandatory = $false)][ref]$ReferenceToHashtableOfCustomNotUpToDateMessages,
+        [Parameter(Mandatory = $false)][ref]$ReferenceToArrayOfMissingModules,
+        [Parameter(Mandatory = $false)][ref]$ReferenceToArrayOfOutdatedModules
+    )
+
+    function Get-PSVersion {
+        # Returns the version of PowerShell that is running, including on the original
+        # release of Windows PowerShell (version 1.0)
+        #
+        # Example:
+        # Get-PSVersion
+        #
+        # This example returns the version of PowerShell that is running. On versions
+        # of PowerShell greater than or equal to version 2.0, this function returns the
+        # equivalent of $PSVersionTable.PSVersion
+        #
+        # The function outputs a [version] object representing the version of
+        # PowerShell that is running
+        #
+        # PowerShell 1.0 does not have a $PSVersionTable variable, so this function
+        # returns [version]('1.0') on PowerShell 1.0
+
+        #region License ############################################################
+        # Copyright (c) 2024 Frank Lesniak
+        #
+        # Permission is hereby granted, free of charge, to any person obtaining a copy
+        # of this software and associated documentation files (the "Software"), to deal
+        # in the Software without restriction, including without limitation the rights
+        # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        # copies of the Software, and to permit persons to whom the Software is
+        # furnished to do so, subject to the following conditions:
+        #
+        # The above copyright notice and this permission notice shall be included in
+        # all copies or substantial portions of the Software.
+        #
+        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        # SOFTWARE.
+        #endregion License ############################################################
+
+        #region DownloadLocationNotice #############################################
+        # The most up-to-date version of this script can be found on the author's
+        # GitHub repository at https://github.com/franklesniak/PowerShell_Resources
+        #endregion DownloadLocationNotice #############################################
+
+        $versionThisFunction = [version]('1.0.20240326.0')
+
+        if (Test-Path variable:\PSVersionTable) {
+            return ($PSVersionTable.PSVersion)
+        } else {
+            return ([version]('1.0'))
+        }
+    }
+
+    $versionPS = Get-PSVersion
+    if ($versionPS -lt ([version]'5.0')) {
+        Write-Warning 'Test-PowerShellModuleUpdatesAvailableUsingHashtable requires PowerShell version 5.0 or newer.'
+        return $false
+    }
+
+    $boolThrowErrorForMissingModule = $false
+    $boolThrowWarningForMissingModule = $false
+
+    if ($ThrowErrorIfModuleNotInstalled.IsPresent -eq $true) {
+        $boolThrowErrorForMissingModule = $true
+    } elseif ($ThrowWarningIfModuleNotInstalled.IsPresent -eq $true) {
+        $boolThrowWarningForMissingModule = $true
+    }
+
+    $boolThrowErrorForOutdatedModule = $false
+    $boolThrowWarningForOutdatedModule = $false
+
+    if ($ThrowErrorIfModuleNotUpToDate.IsPresent -eq $true) {
+        $boolThrowErrorForOutdatedModule = $true
+    } elseif ($ThrowWarningIfModuleNotUpToDate.IsPresent -eq $true) {
+        $boolThrowWarningForOutdatedModule = $true
+    }
+
+    $VerbosePreferenceAtStartOfFunction = $VerbosePreference
+
+    $boolResult = $true
+
+    $hashtableMessagesToThrowForMissingModule = @{}
+    $hashtableModuleNameToCustomMessageToThrowForMissingModule = @{}
+    if ($null -ne $ReferenceToHashtableOfCustomNotInstalledMessages) {
+        $arrMessages = @(($ReferenceToHashtableOfCustomNotInstalledMessages.Value).Keys)
+        foreach ($strMessage in $arrMessages) {
+            $hashtableMessagesToThrowForMissingModule.Add($strMessage, $false)
+
+            ($ReferenceToHashtableOfCustomNotInstalledMessages.Value).Item($strMessage) | ForEach-Object {
+                $hashtableModuleNameToCustomMessageToThrowForMissingModule.Add($_, $strMessage)
+            }
+        }
+    }
+
+    $hashtableMessagesToThrowForOutdatedModule = @{}
+    $hashtableModuleNameToCustomMessageToThrowForOutdatedModule = @{}
+    if ($null -ne $ReferenceToHashtableOfCustomNotUpToDateMessages) {
+        $arrMessages = @(($ReferenceToHashtableOfCustomNotUpToDateMessages.Value).Keys)
+        foreach ($strMessage in $arrMessages) {
+            $hashtableMessagesToThrowForOutdatedModule.Add($strMessage, $false)
+
+            ($ReferenceToHashtableOfCustomNotUpToDateMessages.Value).Item($strMessage) | ForEach-Object {
+                $hashtableModuleNameToCustomMessageToThrowForOutdatedModule.Add($_, $strMessage)
+            }
+        }
+    }
+
+    $arrModuleNames = @(($ReferenceToHashtableOfInstalledModules.Value).Keys)
+    foreach ($strModuleName in $arrModuleNames) {
+        $arrInstalledModules = @(($ReferenceToHashtableOfInstalledModules.Value).Item($strModuleName))
+        if ($arrInstalledModules.Count -eq 0) {
+            $boolResult = $false
+
+            if ($hashtableModuleNameToCustomMessageToThrowForMissingModule.ContainsKey($strModuleName) -eq $true) {
+                $strMessage = $hashtableModuleNameToCustomMessageToThrowForMissingModule.Item($strModuleName)
+                $hashtableMessagesToThrowForMissingModule.Item($strMessage) = $true
+            } else {
+                $strMessage = $strModuleName + ' module not found. Please install it and then try again.' + [System.Environment]::NewLine + 'You can install the ' + $strModuleName + ' PowerShell module from the PowerShell Gallery by running the following command:' + [System.Environment]::NewLine + 'Install-Module ' + $strModuleName + ';' + [System.Environment]::NewLine + [System.Environment]::NewLine + 'If the installation command fails, you may need to upgrade the version of PowerShellGet. To do so, run the following commands, then restart PowerShell:' + [System.Environment]::NewLine + 'Set-ExecutionPolicy Bypass -Scope Process -Force;' + [System.Environment]::NewLine + '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;' + [System.Environment]::NewLine + 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;' + [System.Environment]::NewLine + 'Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;' + [System.Environment]::NewLine + [System.Environment]::NewLine
+                $hashtableMessagesToThrowForMissingModule.Add($strMessage, $true)
+            }
+
+            if ($null -ne $ReferenceToArrayOfMissingModules) {
+                ($ReferenceToArrayOfMissingModules.Value) += $strModuleName
+            }
+        } else {
+            $versionNewestInstalledModule = ($arrInstalledModules | ForEach-Object { [version]($_.Version) } | Sort-Object)[-1]
+
+            $arrModuleNewestInstalledModule = @($arrInstalledModules | Where-Object { ([version]($_.Version)) -eq $versionNewestInstalledModule })
+
+            # In the event there are multiple installations of the same version, reduce to a
+            # single instance of the module
+            if ($arrModuleNewestInstalledModule.Count -gt 1) {
+                $moduleNewestInstalled = @($arrModuleNewestInstalledModule | Select-Object -Unique)[0]
+            } else {
+                $moduleNewestInstalled = $arrModuleNewestInstalledModule[0]
+            }
+
+            $VerbosePreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+            $moduleNewestAvailable = Find-Module -Name $strModuleName -ErrorAction SilentlyContinue
+            $VerbosePreference = $VerbosePreferenceAtStartOfFunction
+
+            if ($null -ne $moduleNewestAvailable) {
+                if ($moduleNewestAvailable.Version -gt $moduleNewestInstalled.Version) {
+                    # A newer version is available
+                    $boolResult = $false
+
+                    if ($hashtableModuleNameToCustomMessageToThrowForOutdatedModule.ContainsKey($strModuleName) -eq $true) {
+                        $strMessage = $hashtableModuleNameToCustomMessageToThrowForOutdatedModule.Item($strModuleName)
+                        $hashtableMessagesToThrowForOutdatedModule.Item($strMessage) = $true
+                    } else {
+                        $strMessage = 'A newer version of the ' + $strModuleName + ' PowerShell module is available. Please consider updating it by running the following command:' + [System.Environment]::NewLine + 'Install-Module ' + $strModuleName + ' -Force;' + [System.Environment]::NewLine + [System.Environment]::NewLine + 'If the installation command fails, you may need to upgrade the version of PowerShellGet. To do so, run the following commands, then restart PowerShell:' + [System.Environment]::NewLine + 'Set-ExecutionPolicy Bypass -Scope Process -Force;' + [System.Environment]::NewLine + '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;' + [System.Environment]::NewLine + 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;' + [System.Environment]::NewLine + 'Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;' + [System.Environment]::NewLine + [System.Environment]::NewLine
+                        $hashtableMessagesToThrowForOutdatedModule.Add($strMessage, $true)
+                    }
+
+                    if ($null -ne $ReferenceToArrayOfOutdatedModules) {
+                        ($ReferenceToArrayOfOutdatedModules.Value) += $strModuleName
+                    }
+                }
+            } else {
+                # Couldn't find the module in the PowerShell Gallery
+            }
+        }
+    }
+
+    if ($boolThrowErrorForMissingModule -eq $true) {
+        $arrMessages = @($hashtableMessagesToThrowForMissingModule.Keys)
+        foreach ($strMessage in $arrMessages) {
+            if ($hashtableMessagesToThrowForMissingModule.Item($strMessage) -eq $true) {
+                Write-Error $strMessage
+            }
+        }
+    } elseif ($boolThrowWarningForMissingModule -eq $true) {
+        $arrMessages = @($hashtableMessagesToThrowForMissingModule.Keys)
+        foreach ($strMessage in $arrMessages) {
+            if ($hashtableMessagesToThrowForMissingModule.Item($strMessage) -eq $true) {
+                Write-Warning $strMessage
+            }
+        }
+    }
+
+    if ($boolThrowErrorForOutdatedModule -eq $true) {
+        $arrMessages = @($hashtableMessagesToThrowForOutdatedModule.Keys)
+        foreach ($strMessage in $arrMessages) {
+            if ($hashtableMessagesToThrowForOutdatedModule.Item($strMessage) -eq $true) {
+                Write-Error $strMessage
+            }
+        }
+    } elseif ($boolThrowWarningForOutdatedModule -eq $true) {
+        $arrMessages = @($hashtableMessagesToThrowForOutdatedModule.Keys)
+        foreach ($strMessage in $arrMessages) {
+            if ($hashtableMessagesToThrowForOutdatedModule.Item($strMessage) -eq $true) {
+                Write-Warning $strMessage
+            }
+        }
+    }
+    return $boolResult
+}
+
 function Test-NuGetDotOrgRegisteredAsPackageSource {
     <#
     .SYNOPSIS
@@ -393,7 +1113,7 @@ function Test-NuGetDotOrgRegisteredAsPackageSource {
     }
 
     $boolPackageSourceFound = $true
-    Write-Debug ('Checking for registered package sources (Get-PackageSource)...')
+    Write-Information ('Checking for registered package sources (Get-PackageSource)...')
     $WarningPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
     $VerbosePreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
     $DebugPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
@@ -563,7 +1283,7 @@ function Get-PackagesUsingHashtable {
     $DebugPreference = $DebugPreferenceAtStartOfFunction
 
     for ($intCounter = 0; $intCounter -lt $arrPackagesToGet.Count; $intCounter++) {
-        Write-Debug ('Checking for ' + $arrPackagesToGet[$intCounter] + ' software package...')
+        Write-Information ('Checking for ' + $arrPackagesToGet[$intCounter] + ' software package...')
         $arrMatchingPackages = @($arrPackagesInstalled | Where-Object { $_.Name -eq $arrPackagesToGet[$intCounter] })
         if ($arrMatchingPackages.Count -eq 0) {
             ($ReferenceToHashtable.Value).Item($arrPackagesToGet[$intCounter]) = $null
@@ -1246,6 +1966,545 @@ function Measure-EuclideanDistance($Point1, $Point2) {
     return [Math]::Sqrt($doubleSum)
 }
 
+function Invoke-KMeansClusteringForSpecifiedNumberOfClusters {
+    param (
+        [Parameter(Mandatory = $true)][ref]$ReferenceToHashtableOfNumberOfClustersToArtifacts,
+        [Parameter(Mandatory = $true)][ValidateScript({ $_ -ge 1 })][int]$NumberOfClusters,
+        [Parameter(Mandatory = $true)][ref]$ReferenceToTwoDimensionalArrayOfEmbeddings,
+        [Parameter(Mandatory = $true)][ref]$ReferenceToHashtableOfEuclideanDistancesBetweenItems,
+        [Parameter(Mandatory = $true)][ref]$ReferenceToCentroidOverWholeDataset,
+        [Parameter(Mandatory = $false)][switch]$DoNotCalculateExtendedStatistics
+    )
+
+    function Get-PSVersion {
+        # Returns the version of PowerShell that is running, including on the original
+        # release of Windows PowerShell (version 1.0)
+        #
+        # Example:
+        # Get-PSVersion
+        #
+        # This example returns the version of PowerShell that is running. On versions
+        # of PowerShell greater than or equal to version 2.0, this function returns the
+        # equivalent of $PSVersionTable.PSVersion
+        #
+        # The function outputs a [version] object representing the version of
+        # PowerShell that is running
+        #
+        # PowerShell 1.0 does not have a $PSVersionTable variable, so this function
+        # returns [version]('1.0') on PowerShell 1.0
+
+        #region License ############################################################
+        # Copyright (c) 2024 Frank Lesniak
+        #
+        # Permission is hereby granted, free of charge, to any person obtaining a copy
+        # of this software and associated documentation files (the "Software"), to deal
+        # in the Software without restriction, including without limitation the rights
+        # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        # copies of the Software, and to permit persons to whom the Software is
+        # furnished to do so, subject to the following conditions:
+        #
+        # The above copyright notice and this permission notice shall be included in
+        # all copies or substantial portions of the Software.
+        #
+        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        # SOFTWARE.
+        #endregion License ############################################################
+
+        #region DownloadLocationNotice #############################################
+        # The most up-to-date version of this script can be found on the author's
+        # GitHub repository at https://github.com/franklesniak/PowerShell_Resources
+        #endregion DownloadLocationNotice #############################################
+
+        $versionThisFunction = [version]('1.0.20240326.0')
+
+        if (Test-Path variable:\PSVersionTable) {
+            return ($PSVersionTable.PSVersion)
+        } else {
+            return ([version]('1.0'))
+        }
+    }
+
+    $versionPS = Get-PSVersion
+
+    if (($ReferenceToHashtableOfNumberOfClustersToArtifacts.Value).ContainsKey($NumberOfClusters) -eq $true) {
+        # The specified number of clusters has already been processed
+        return
+    }
+
+    $boolCalculateExtendedStatistics = $true
+    if ($null -ne $DoNotCalculateExtendedStatistics) {
+        if ($DoNotCalculateExtendedStatistics.IsPresent -eq $true) {
+            $boolCalculateExtendedStatistics = $false
+        }
+    }
+
+    $PSCustomObjectKMeansArtifacts = New-Object -TypeName 'PSCustomObject'
+    $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'NumberOfClusters' -Value $NumberOfClusters
+    $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'HashtableClustersToItemsAndDistances' -Value $null
+    $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'WithinClusterSumOfSquares' -Value $null
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'SilhouetteScore' -Value $null
+        $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'DaviesBouldinIndex' -Value $null
+        $PSCustomObjectKMeansArtifacts | Add-Member -MemberType NoteProperty -Name 'CalinskiHarabaszIndex' -Value $null
+    }
+
+    $kmeans = New-Object -TypeName 'Accord.MachineLearning.KMeans' -ArgumentList @($NumberOfClusters)
+    [void]($kmeans.Learn($ReferenceToTwoDimensionalArrayOfEmbeddings.Value))
+    $arrClusterNumberAssignmentsForEachItem = $kmeans.Clusters.Decide($ReferenceToTwoDimensionalArrayOfEmbeddings.Value)
+
+    #region Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
+    if ($NumberOfClusters -eq 1) {
+        Write-Information ('1 cluster: Creating hashtable for efficient lookup of cluster # to associated items...')
+    } else {
+        Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable for efficient lookup of cluster # to associated items...')
+    }
+    # Create a hashtable for easier lookup of cluster number to comment index number
+    $hashtableClustersToItems = @{}
+    if ($versionPS -ge ([version]'6.0')) {
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $hashtableClustersToItems.Add($intCounterA, (New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'))
+        }
+    } else {
+        # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+        # of a generic list
+        # TODO: Fill in rationale for this
+        #
+        # Technically, in older versions of PowerShell, the type in the ArrayList will
+        # be a PSObject; but that does not matter for our purposes.
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $hashtableClustersToItems.Add($intCounterA, (New-Object -TypeName 'System.Collections.ArrayList'))
+        }
+    }
+
+    # Populate the hashtable of cluster number -> associated items
+    $intCounterMax = $arrClusterNumberAssignmentsForEachItem.Length
+    if ($versionPS -ge ([version]'6.0')) {
+        # PowerShell v6.0 or newer
+        for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
+            $intTopicNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
+
+            # Add the updated object to the list
+            ($hashtableClustersToItems.Item($intTopicNumber)).Add($intCounterA)
+        }
+    } else {
+        # Windows PowerShell 5.0 or 5.1
+        for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
+            $intTopicNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
+
+            # Add the updated object to the list
+            [void](($hashtableClustersToItems.Item($intTopicNumber)).Add($intCounterA))
+        }
+    }
+    #endregion Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
+
+    #region Create Hashtable Including Euclidian Distance from Item to Centroid ########
+    if ($NumberOfClusters -eq 1) {
+        Write-Information ('1 cluster: Creating hashtable including Euclidian distance from each item to its cluster centroid...')
+    } else {
+        Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable including Euclidian distance from each item to its cluster centroid...')
+    }
+    $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances = @{}
+    if ($versionPS -ge ([version]'6.0')) {
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Add($intCounterA, (New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'))
+        }
+    } else {
+        # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+        # of a generic list
+        # TODO: Fill in rationale for this
+        #
+        # Technically, in older versions of PowerShell, the type in the ArrayList will
+        # be a PSObject; but that does not matter for our purposes.
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Add($intCounterA, (New-Object -TypeName 'System.Collections.ArrayList'))
+        }
+    }
+
+    #region Collect Stats/Objects Needed for Writing Progress ##########################
+    $intProgressReportingFrequency = 50
+    $intTotalItems = $arrInputCSV.Count
+    $strProgressActivity = 'Performing k-means clustering'
+    if ($NumberOfClusters -eq 1) {
+        $strProgressStatus = 'Calculating distances from items to cluster centroid (1 cluster)'
+    } else {
+        $strProgressStatus = 'Calculating distances from items to cluster centroids (' + [string]$NumberOfClusters + ' clusters)'
+    }
+    $strProgressCurrentOperationPrefix = 'Processing item'
+    $timedateStartOfLoop = Get-Date
+    # Create a queue for storing lagging timestamps for ETA calculation
+    $queueLaggingTimestamps = New-Object System.Collections.Queue
+    $queueLaggingTimestamps.Enqueue($timedateStartOfLoop)
+    #endregion Collect Stats/Objects Needed for Writing Progress ##########################
+
+    $intCounterLoop = 0
+    if ($versionPS -ge ([version]'6.0')) {
+        # PowerShell v6.0 or newer
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            if ($NumberOfClusters -eq 1) {
+                $ReferenceToCentroidOverWholeDataset.Value = ($kmeans.Clusters.Centroids)[$intCounterA]
+            }
+            $arrCentroid = ($kmeans.Clusters.Centroids)[$intCounterA]
+            foreach ($intItemIndex in $hashtableClustersToItems.Item($intCounterA)) {
+                #region Report Progress ########################################################
+                $intCurrentItemNumber = $intCounterLoop + 1 # Forward direction for loop
+                if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
+                    # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
+                    $timeDateLagging = $queueLaggingTimestamps.Dequeue()
+                    $datetimeNow = Get-Date
+                    $timespanTimeDelta = $datetimeNow - $timeDateLagging
+                    $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
+                    $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
+                    $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
+                    Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
+                }
+                #endregion Report Progress ########################################################
+
+                # Centroid: $arrCentroid
+                # Embeddings for this item: @($arrEmbeddings[$intItemIndex])
+                # Distance: Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
+                $doubleDistance = Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
+
+                $psobject = New-Object PSCustomObject
+                $psobject | Add-Member -MemberType NoteProperty -Name 'ItemNumber' -Value $intItemIndex
+                $psobject | Add-Member -MemberType NoteProperty -Name 'DistanceFromCentroid' -Value $doubleDistance
+
+                # Add the updated object to the list
+                ($PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA)).Add($psobject)
+
+                #region Post-Loop Progress Reporting ###########################################
+                if ($intCurrentItemNumber -eq $intTotalItems) {
+                    Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
+                }
+                if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
+                    # Add lagging timestamp to queue
+                    $queueLaggingTimestamps.Enqueue((Get-Date))
+                }
+                # Increment counter
+                $intCounterLoop++
+                #endregion Post-Loop Progress Reporting ###########################################
+            }
+        }
+    } else {
+        # PowerShell 5.0 or 5.1
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $arrCentroid = ($kmeans.Clusters.Centroids)[$intCounterA]
+            foreach ($intItemIndex in $hashtableClustersToItems.Item($intCounterA)) {
+                #region Report Progress ########################################################
+                $intCurrentItemNumber = $intCounterLoop + 1 # Forward direction for loop
+                if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
+                    # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
+                    $timeDateLagging = $queueLaggingTimestamps.Dequeue()
+                    $datetimeNow = Get-Date
+                    $timespanTimeDelta = $datetimeNow - $timeDateLagging
+                    $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
+                    $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
+                    $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
+                    Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
+                }
+                #endregion Report Progress ########################################################
+
+                # Centroid: $arrCentroid
+                # Embeddings for this item: @($arrEmbeddings[$intItemIndex])
+                # Distance: Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
+                $doubleDistance = Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
+
+                $psobject = New-Object PSCustomObject
+                $psobject | Add-Member -MemberType NoteProperty -Name 'ItemNumber' -Value $intItemIndex
+                $psobject | Add-Member -MemberType NoteProperty -Name 'DistanceFromCentroid' -Value $doubleDistance
+
+                # Add the updated object to the list
+                [void](($PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA)).Add($psobject))
+
+                #region Post-Loop Progress Reporting ###########################################
+                if ($intCurrentItemNumber -eq $intTotalItems) {
+                    Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
+                }
+                if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
+                    # Add lagging timestamp to queue
+                    $queueLaggingTimestamps.Enqueue((Get-Date))
+                }
+                # Increment counter
+                $intCounterLoop++
+                #endregion Post-Loop Progress Reporting ###########################################
+            }
+        }
+    }
+    #endregion Create Hashtable Including Euclidian Distance from Item to Centroid ########
+
+    #region Create Hashtable of Silhouette Scores for Each Item #########################
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        if ($NumberOfClusters -eq 1) {
+            Write-Information ('1 cluster: Creating hashtable of silhouette scores for each item...')
+        } else {
+            Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable of silhouette scores for each item...')
+        }
+        if (@($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Keys).Count -eq 0) {
+            Write-Information 'NOTE: The first time the silhouette scores are calculated, it may take a while; please be patient! The script needs to calculate the Euclidean distances between items, but it will cache them for future use.'
+        }
+        $hashtableItemsToSilhouetteScores = @{}
+
+        $intCounterMax = $ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length
+
+        #region Collect Stats/Objects Needed for Writing Progress ##########################
+        $intProgressReportingFrequency = 1
+        $intTotalItems = $intCounterMax
+        $strProgressActivity = 'Performing k-means clustering'
+        if ($NumberOfClusters -eq 1) {
+            $strProgressStatus = 'Calculating silhouette scores for each item in the dataset (1 cluster)'
+        } else {
+            $strProgressStatus = 'Calculating silhouette scores for each item in the dataset (' + [string]$NumberOfClusters + ' clusters)'
+        }
+        $strProgressCurrentOperationPrefix = 'Processing item'
+        $timedateStartOfLoop = Get-Date
+        # Create a queue for storing lagging timestamps for ETA calculation
+        $queueLaggingTimestamps = New-Object System.Collections.Queue
+        $queueLaggingTimestamps.Enqueue($timedateStartOfLoop)
+        #endregion Collect Stats/Objects Needed for Writing Progress ##########################
+
+        for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
+            $intClusterNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
+
+            #region Report Progress ########################################################
+            $intCurrentItemNumber = $intCounterA + 1 # Forward direction for loop
+            if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
+                # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
+                $timeDateLagging = $queueLaggingTimestamps.Dequeue()
+                $datetimeNow = Get-Date
+                $timespanTimeDelta = $datetimeNow - $timeDateLagging
+                $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
+                $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
+                $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
+                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
+            }
+            #endregion Report Progress ########################################################
+
+            # Get average distance to items in cluster (a)
+            $doubleDistanceToItemsInCluster = [double]0
+            $intCountOfItemsInCluster = 0
+            $hashtableClustersToItems.Item($intClusterNumber) | Where-Object { $_ -ne $intCounterA } | ForEach-Object {
+                $intItemIndex = $_
+                $intCountOfItemsInCluster++
+
+                # Calculate or look up Euclidean distance
+                $intMinimumIndexNumber = [Math]::Min($intCounterA, $intItemIndex)
+                $intMaximumIndexNumber = [Math]::Max($intCounterA, $intItemIndex)
+                $boolCalculateEuclideanDistance = $true
+                if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.ContainsKey($intMinimumIndexNumber) -eq $true) {
+                    if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).ContainsKey($intMaximumIndexNumber) -eq $true) {
+                        $doubleEuclideanDistance = $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).Item($intMaximumIndexNumber)
+                        $boolCalculateEuclideanDistance = $false
+                    }
+                }
+                if ($boolCalculateEuclideanDistance -eq $true) {
+                    $doubleEuclideanDistance = Measure-EuclideanDistance -Point1 @($arrEmbeddings[$intCounterA]) -Point2 @($arrEmbeddings[$intItemIndex])
+                    if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.ContainsKey($intMinimumIndexNumber) -eq $false) {
+                        $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Add($intMinimumIndexNumber, @{})
+                    }
+                    $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).Add($intMaximumIndexNumber, $doubleEuclideanDistance)
+                }
+
+                # Add it to the total
+                $doubleDistanceToItemsInCluster += $doubleEuclideanDistance
+            }
+            if ($intCountOfItemsInCluster -gt 0) {
+                $doubleAverageDistanceToItemsInCluster = $doubleDistanceToItemsInCluster / $intCountOfItemsInCluster
+            } else {
+                $doubleAverageDistanceToItemsInCluster = [double]0
+            }
+
+            # Get minimum average distance to items in other clusters (b)
+            $doubleMinimumAverageDistanceToItemsInOtherClusters = [double]::MaxValue
+            for ($intCounterB = 0; $intCounterB -lt $NumberOfClusters; $intCounterB++) {
+                if ($intCounterB -ne $intClusterNumber) {
+                    $doubleDistanceToItemsInOtherCluster = [double]0
+                    $intCountOfItemsInOtherCluster = 0
+                    $hashtableClustersToItems.Item($intCounterB) | ForEach-Object {
+                        $intItemIndex = $_
+                        $intCountOfItemsInOtherCluster++
+
+                        # Calculate or look up Euclidean distance
+                        $intMinimumIndexNumber = [Math]::Min($intCounterA, $intItemIndex)
+                        $intMaximumIndexNumber = [Math]::Max($intCounterA, $intItemIndex)
+                        $boolCalculateEuclideanDistance = $true
+                        if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.ContainsKey($intMinimumIndexNumber) -eq $true) {
+                            if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).ContainsKey($intMaximumIndexNumber) -eq $true) {
+                                $doubleEuclideanDistance = $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).Item($intMaximumIndexNumber)
+                                $boolCalculateEuclideanDistance = $false
+                            }
+                        }
+                        if ($boolCalculateEuclideanDistance -eq $true) {
+                            $doubleEuclideanDistance = Measure-EuclideanDistance -Point1 @($arrEmbeddings[$intCounterA]) -Point2 @($arrEmbeddings[$intItemIndex])
+                            if ($ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.ContainsKey($intMinimumIndexNumber) -eq $false) {
+                                $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Add($intMinimumIndexNumber, @{})
+                            }
+                            $ReferenceToHashtableOfEuclideanDistancesBetweenItems.Value.Item($intMinimumIndexNumber).Add($intMaximumIndexNumber, $doubleEuclideanDistance)
+                        }
+
+                        # Add it to the total
+                        $doubleDistanceToItemsInOtherCluster += $doubleEuclideanDistance
+                    }
+                    if ($intCountOfItemsInOtherCluster -gt 0) {
+                        $doubleAverageDistanceToItemsInOtherCluster = $doubleDistanceToItemsInOtherCluster / $intCountOfItemsInOtherCluster
+                    } else {
+                        $doubleAverageDistanceToItemsInOtherCluster = [double]0
+                    }
+                    if ($doubleAverageDistanceToItemsInOtherCluster -lt $doubleMinimumAverageDistanceToItemsInOtherClusters) {
+                        $doubleMinimumAverageDistanceToItemsInOtherClusters = $doubleAverageDistanceToItemsInOtherCluster
+                    }
+                }
+            }
+
+            $doubleSilhouetteScore = ($doubleMinimumAverageDistanceToItemsInOtherClusters - $doubleAverageDistanceToItemsInCluster) / [Math]::Max($doubleMinimumAverageDistanceToItemsInOtherClusters, $doubleAverageDistanceToItemsInCluster)
+            $hashtableItemsToSilhouetteScores.Add($intCounterA, $doubleSilhouetteScore)
+
+            #region Post-Loop Progress Reporting ###########################################
+            if ($intCurrentItemNumber -eq $intTotalItems) {
+                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
+            }
+            if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
+                # Add lagging timestamp to queue
+                $queueLaggingTimestamps.Enqueue((Get-Date))
+            }
+            # Increment counter
+            $intCounterLoop++
+            #endregion Post-Loop Progress Reporting ###########################################
+        }
+    }
+    #endregion Create Hashtable of Silhouette Scores for Each Item #########################
+
+    #region Create Hashtable of Cluster Number to Averaged Distance from Each Item to its Centroid in that Cluster
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $hashtableClusterNumberToAverageDistanceFromEachItemToItsClusterCentroid = @{}
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $doubleTotalDistance = [double]0
+            $intNumberOfItemsInCluster = $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA).Count
+            for ($intCounterB = 0; $intCounterB -lt $intNumberOfItemsInCluster; $intCounterB++) {
+                $doubleTotalDistance += ($PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA))[$intCounterB].DistanceFromCentroid
+            }
+            $hashtableClusterNumberToAverageDistanceFromEachItemToItsClusterCentroid.Add($intCounterA, $doubleTotalDistance / $intNumberOfItemsInCluster)
+        }
+    }
+    #endregion Create Hashtable of Cluster Number to Averaged Distance from Each Item to its Centroid in that Cluster
+
+    #region Create Hashtable of Distances Between Each Centroid and All Other Centroids
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $hashtableClusterNumberToDistancesToOtherCentroids = @{}
+        for ($intCounterA = 0; $intCounterA -lt ($NumberOfClusters - 1); $intCounterA++) {
+            $hashtableClusterNumberToDistancesToOtherCentroids.Add($intCounterA, @{})
+            for ($intCounterB = $intCounterA + 1; $intCounterB -lt $NumberOfClusters; $intCounterB++) {
+                $doubleDistance = Measure-EuclideanDistance -Point1 ($kmeans.Clusters.Centroids)[$intCounterA] -Point2 ($kmeans.Clusters.Centroids)[$intCounterB]
+                $hashtableClusterNumberToDistancesToOtherCentroids.Item($intCounterA).Add($intCounterB, $doubleDistance)
+            }
+        }
+    }
+    #endregion Create Hashtable of Distances Between Each Centroid and All Other Centroids
+
+    #region Create Hashtable Of Average Distance for Each Cluster and Compute WCSS #
+    if ($NumberOfClusters -eq 1) {
+        Write-Information ('1 cluster: Creating hashtable of average distance for each cluster and computing within-cluster sum of squares...')
+    } else {
+        Write-Information ([string]$NumberOfClusters + ' clusters: Creating hashtable of average distance for each cluster and computing within-cluster sum of squares...')
+    }
+    $doubleWCSS = [double]0
+    for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+        $doubleSum = [double]0
+        foreach ($psobject in $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA)) {
+            $doubleWCSS += [math]::Pow($psobject.DistanceFromCentroid, 2)
+            $doubleSum += $psobject.DistanceFromCentroid
+        }
+    }
+    $PSCustomObjectKMeansArtifacts.WithinClusterSumOfSquares = $doubleWCSS
+    #endregion Create Hashtable Of Average Distance for Each Cluster and Compute WCSS #
+
+    #region Calculate Between Cluster Scatter
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $doubleBetweenClusterScatter = [double]0
+        for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+            $doubleEuclideanDistance = Measure-EuclideanDistance -Point1 ($kmeans.Clusters.Centroids)[$intCounterA] -Point2 $ReferenceToCentroidOverWholeDataset.Value
+            $intClusterSize = $PSCustomObjectKMeansArtifacts.HashtableClustersToItemsAndDistances.Item($intCounterA).Count
+            $doubleBetweenClusterScatter += $intClusterSize * [math]::Pow($doubleEuclideanDistance, 2)
+        }
+    }
+    #endregion Calculate Between Cluster Scatter
+
+    #region Calculate Within Cluster Scatter
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        $doubleWithinClusterScatter = $PSCustomObjectKMeansArtifacts.WithinClusterSumOfSquares
+    }
+    #endregion Calculate Within Cluster Scatter
+
+    #region Compute Silhouette Score ###############################################
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        if ($NumberOfClusters -eq 1) {
+            Write-Information ('1 cluster: Computing silhouette score...')
+        } else {
+            Write-Information ([string]$NumberOfClusters + ' clusters: Computing silhouette score...')
+        }
+        if ($NumberOfClusters -gt 1) {
+            $doubleSilhouetteScore = [double]0
+            $intCounterMax = $ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length
+            for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
+                $doubleSilhouetteScore += $hashtableItemsToSilhouetteScores.Item($intCounterA)
+            }
+            $doubleSilhouetteScore /= $intCounterMax
+            $PSCustomObjectKMeansArtifacts.SilhouetteScore = $doubleSilhouetteScore
+        }
+    }
+    #endregion Compute Silhouette Score ###############################################
+
+    #region Compute Davies-Bouldin Index ###########################################
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        if ($NumberOfClusters -eq 1) {
+            Write-Information ('1 cluster: Computing Davies-Bouldin index...')
+        } else {
+            Write-Information ([string]$NumberOfClusters + ' clusters: Computing Davies-Bouldin index...')
+        }
+        if ($NumberOfClusters -ge 2) {
+            $doubleDBIndex = [double]0
+            for ($intCounterA = 0; $intCounterA -lt $NumberOfClusters; $intCounterA++) {
+                $doubleMax = [double]0
+                for ($intCounterB = 0; $intCounterB -lt $NumberOfClusters; $intCounterB++) {
+                    if ($intCounterA -ne $intCounterB) {
+                        $intMinimumClusterNumber = [Math]::Min($intCounterA, $intCounterB)
+                        $intMaximumClusterNumber = [Math]::Max($intCounterA, $intCounterB)
+                        $doubleValue = ($hashtableClusterNumberToAverageDistanceFromEachItemToItsClusterCentroid.Item($intCounterA) + $hashtableClusterNumberToAverageDistanceFromEachItemToItsClusterCentroid.Item($intCounterB)) / $hashtableClusterNumberToDistancesToOtherCentroids.Item($intMinimumClusterNumber).Item($intMaximumClusterNumber)
+                        if ($doubleValue -gt $doubleMax) {
+                            $doubleMax = $doubleValue
+                        }
+                    }
+                }
+                $doubleDBIndex += $doubleMax
+            }
+            $doubleDBIndex /= $NumberOfClusters
+            $PSCustomObjectKMeansArtifacts.DaviesBouldinIndex = $doubleDBIndex
+        }
+    }
+    #endregion Compute Davies-Bouldin Index ###########################################
+
+    #region Compute Calinski-Harabasz Index #########################################
+    if ($boolCalculateExtendedStatistics -eq $true) {
+        if ($NumberOfClusters -eq 1) {
+            Write-Information ('1 cluster: Computing Calinski-Harabasz index...')
+        } else {
+            Write-Information ([string]$NumberOfClusters + ' clusters: Computing Calinski-Harabasz index...')
+        }
+        if ($NumberOfClusters -ge 2) {
+            $doubleNumerator = $doubleBetweenClusterScatter / ($NumberOfClusters - 1)
+            $doubleDenominator = $doubleWithinClusterScatter / (($ReferenceToTwoDimensionalArrayOfEmbeddings.Value.Length) - $NumberOfClusters)
+            $doubleCHIndex = $doubleNumerator / $doubleDenominator
+            $PSCustomObjectKMeansArtifacts.CalinskiHarabaszIndex = $doubleCHIndex
+        }
+    }
+    #endregion Compute Calinski-Harabasz Index #########################################
+
+    $ReferenceToHashtableOfNumberOfClustersToArtifacts.Value.Add($NumberOfClusters, $PSCustomObjectKMeansArtifacts)
+}
+
 # TODO: Figure out how to use Microsoft.ML instead of Accord, at least for PowerShell
 # v6.0 and later. Microsoft.ML is actively maintained.
 
@@ -1258,18 +2517,62 @@ if ($versionPS -lt [version]'5.0') {
 }
 #endregion Quit if PowerShell Version is Unsupported ##################################
 
-# Make sure the input file exists
+#region Check for required PowerShell Modules ######################################
+if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false) {
+    # User has requested at least one Excel workbook; make sure ImportExcel is
+    # installed
+    $hashtableModuleNameToInstalledModules = @{}
+    $hashtableModuleNameToInstalledModules.Add('ImportExcel', @())
+    $refHashtableModuleNameToInstalledModules = [ref]$hashtableModuleNameToInstalledModules
+    Get-PowerShellModuleUsingHashtable -ReferenceToHashtable $refHashtableModuleNameToInstalledModules
+
+    $hashtableCustomNotInstalledMessageToModuleNames = @{}
+
+    $refhashtableCustomNotInstalledMessageToModuleNames = [ref]$hashtableCustomNotInstalledMessageToModuleNames
+    $boolResult = Test-PowerShellModuleInstalledUsingHashtable -ReferenceToHashtableOfInstalledModules $refHashtableModuleNameToInstalledModules -ThrowErrorIfModuleNotInstalled -ReferenceToHashtableOfCustomNotInstalledMessages $refhashtableCustomNotInstalledMessageToModuleNames
+
+    if ($boolResult -eq $false) {
+        return # Quit script
+    }
+}
+#endregion Check for required PowerShell Modules ######################################
+
+#region Check for PowerShell module updates ########################################
+if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false) {
+    # User has requested at least one Excel workbook; make sure ImportExcel is
+    # up to date
+    $boolDoNotCheckForModuleUpdates = $false
+    if ($null -ne $DoNotCheckForModuleUpdates) {
+        if ($DoNotCheckForModuleUpdates.IsPresent -eq $true) {
+            $boolDoNotCheckForModuleUpdates = $true
+        }
+    }
+    if ($boolDoNotCheckForModuleUpdates -eq $false) {
+        Write-Verbose 'Checking for module updates...'
+        $hashtableCustomNotUpToDateMessageToModuleNames = @{}
+
+        $refhashtableCustomNotUpToDateMessageToModuleNames = [ref]$hashtableCustomNotUpToDateMessageToModuleNames
+        $boolResult = Test-PowerShellModuleUpdatesAvailableUsingHashtable -ReferenceToHashtableOfInstalledModules $refHashtableModuleNameToInstalledModules -ThrowErrorIfModuleNotInstalled -ThrowWarningIfModuleNotUpToDate -ReferenceToHashtableOfCustomNotInstalledMessages $refhashtableCustomNotInstalledMessageToModuleNames -ReferenceToHashtableOfCustomNotUpToDateMessages $refhashtableCustomNotUpToDateMessageToModuleNames
+    }
+}
+#endregion Check for PowerShell module updates ########################################
+
+#region Make sure the input file exists ############################################
 if ((Test-Path -Path $InputCSVPath -PathType Leaf) -eq $false) {
     Write-Warning ('Input CSV file not found at: "' + $InputCSVPath + '"')
     return # Quit script
 }
+#endregion Make sure the input file exists ############################################
 
-# Make sure that nuget.org is registered as a package source; if not, throw a warning and quit
+#region Make sure that nuget.org is registered as a package source #################
+# (if not, throw a warning and quit)
 $boolNuGetDotOrgRegisteredAsPackageSource = Test-NuGetDotOrgRegisteredAsPackageSource -ThrowWarningIfNuGetDotOrgNotRegistered
 if ($boolNuGetDotOrgRegisteredAsPackageSource -eq $false) {
     return # Quit script
 }
+#endregion Make sure that nuget.org is registered as a package source #################
 
+#region Make sure that required NuGet packages are installed #######################
 $hashtablePackageNameToInstalledPackageMetadata = @{}
 
 $hashtablePackageNameToInstalledPackageMetadata.Add('Accord', $null)
@@ -1291,24 +2594,47 @@ $boolResult = Test-PackageInstalledUsingHashtable -ReferenceToHashtableOfInstall
 if ($boolResult -eq $false) {
     return # Quit script
 }
+#endregion Make sure that required NuGet packages are installed #######################
 
-# Make sure the output file doesn't already exist and if it does, delete it and then
-# verify that it's gone
+#region Make sure the output files don't already exist #############################
+# (and if it does, delete it and then verify that it's gone)
 if ((Test-Path -Path $OutputCSVPath -PathType Leaf) -eq $true) {
-    Remove-Item -Path $OutputCSVPath -Force
+    Remove-Item -Path $OutputCSVPath -Force -ErrorAction SilentlyContinue
     if ((Test-Path -Path $OutputCSVPath -PathType Leaf) -eq $true) {
         Write-Warning ('Output CSV file already exists and could not be deleted (the file may be in use): "' + $OutputCSVPath + '"')
         return
     }
 }
 
-# Import the CSV
+if ([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $false) {
+    if ((Test-Path -Path $OutputCSVPathForAllClusterStatistics -PathType Leaf) -eq $true) {
+        Remove-Item -Path $OutputCSVPathForAllClusterStatistics -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -Path $OutputCSVPathForAllClusterStatistics -PathType Leaf) -eq $true) {
+            Write-Warning ('Output CSV file for cluster statistics already exists and could not be deleted (the file may be in use): "' + $OutputCSVPathForAllClusterStatistics + '"')
+            return
+        }
+    }
+}
+
+if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false) {
+    if ((Test-Path -Path $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters -PathType Leaf) -eq $true) {
+        Remove-Item -Path $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -Path $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters -PathType Leaf) -eq $true) {
+            Write-Warning ('Output Excel workbook for all clusters already exists and could not be deleted (the file may be in use): "' + $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters + '"')
+            return
+        }
+    }
+}
+#endregion Make sure the output files don't already exist #############################
+
+#region Import the CSV #############################################################
 $arrInputCSV = @()
 $arrInputCSV = @(Import-Csv $InputCSVPath)
 if ($arrInputCSV.Count -eq 0) {
     Write-Warning ('Input CSV file is empty: "' + $InputCSVPath + '"')
     return
 }
+#endregion Import the CSV #############################################################
 
 # Create a fixed-size array to store the embeddings
 $arrEmbeddings = New-Object PSCustomObject[] $arrInputCSV.Count
@@ -1384,7 +2710,7 @@ foreach ($strPackageName in $arrNuGetPackages) {
             $arrDLLPaths += $strDLLPath
 
             # Load the .dll
-            Write-Debug ('Loading .dll: "' + $strDLLPath + '"')
+            Write-Information ('Loading .dll: "' + $strDLLPath + '"')
             try {
                 Add-Type -Path $strDLLPath
             } catch {
@@ -1398,183 +2724,438 @@ foreach ($strPackageName in $arrNuGetPackages) {
 }
 #endregion Load the Accord.NET NuGet Package DLLs #####################################
 
-# TODO: Dynamically set the number of clusters
+#region Determine upper and lower bounds for the number of clusters ################
 if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
-    $intNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count)))
-} else {
-    $intNumberOfClusters = $NumberOfClusters
-}
-
-$kmeans = New-Object -TypeName 'Accord.MachineLearning.KMeans' -ArgumentList @($intNumberOfClusters)
-[void]($kmeans.Learn($arrEmbeddings))
-$arrClusterNumberAssignmentsForEachItem = $kmeans.Clusters.Decide($arrEmbeddings)
-
-#region Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
-Write-Debug ('Creating hashtable for efficient lookup of cluster # to associated items...')
-# Create a hashtable for easier lookup of cluster number to comment index number
-$hashtableClustersToItems = @{}
-if ($versionPS -ge ([version]'6.0')) {
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $hashtableClustersToItems.Add($intCounterA, (New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'))
+    # Number of clusters was not specified
+    $intMinNumberOfClusters = 1
+    $intMaxNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count) * 1.2))
+    if ($intMaxNumberOfClusters -gt $arrInputCSV.Count) {
+        $intMaxNumberOfClusters = $arrInputCSV.Count
     }
 } else {
-    # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
-    # of a generic list
-    # TODO: Fill in rationale for this
-    #
-    # Technically, in older versions of PowerShell, the type in the ArrayList will
-    # be a PSObject; but that does not matter for our purposes.
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $hashtableClustersToItems.Add($intCounterA, (New-Object -TypeName 'System.Collections.ArrayList'))
+    # Number of clusters was specified
+    $intMinNumberOfClusters = $NumberOfClusters
+    $intMaxNumberOfClusters = $NumberOfClusters
+}
+#endregion Determine upper and lower bounds for the number of clusters ################
+
+#region Perform k-means clustering #################################################
+$hashtableKToClusterArtifacts = @{}
+$hashtableEuclideanDistancesBetweenItems = @{}
+$arrCentroidOverWholeDataset = @()
+
+$boolDoNotCalculateExtendedStatistics = $false
+if ($null -ne $DoNotCalculateExtendedStatistics) {
+    if ($DoNotCalculateExtendedStatistics.IsPresent -eq $true) {
+        $boolDoNotCalculateExtendedStatistics = $true
     }
 }
 
-# Populate the hashtable of cluster number -> associated items
-$intCounterMax = $arrClusterNumberAssignmentsForEachItem.Length
-if ($versionPS -ge ([version]'6.0')) {
-    # PowerShell v6.0 or newer
-    for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
-        $intTopicNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
-
-        # Add the updated object to the list
-        ($hashtableClustersToItems.Item($intTopicNumber)).Add($intCounterA)
-    }
-} else {
-    # Windows PowerShell 5.0 or 5.1
-    for ($intCounterA = 0; $intCounterA -lt $intCounterMax; $intCounterA++) {
-        $intTopicNumber = $arrClusterNumberAssignmentsForEachItem[$intCounterA]
-
-        # Add the updated object to the list
-        [void](($hashtableClustersToItems.Item($intTopicNumber)).Add($intCounterA))
-    }
-}
-#endregion Create Hashtable for Efficient Lookup of Cluster # to Associated Items #####
-
-#region Create Hashtable Including Euclidian Distance from Item to Centroid ########
-Write-Debug ('Creating hashtable including Euclidian distance from each item to its cluster centroid...')
-$hashtableClustersToItemsAndDistances = @{}
-if ($versionPS -ge ([version]'6.0')) {
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $hashtableClustersToItemsAndDistances.Add($intCounterA, (New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'))
-    }
-} else {
-    # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
-    # of a generic list
-    # TODO: Fill in rationale for this
-    #
-    # Technically, in older versions of PowerShell, the type in the ArrayList will
-    # be a PSObject; but that does not matter for our purposes.
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $hashtableClustersToItemsAndDistances.Add($intCounterA, (New-Object -TypeName 'System.Collections.ArrayList'))
-    }
-}
-
-#region Collect Stats/Objects Needed for Writing Progress ##########################
-$intProgressReportingFrequency = 50
-$intTotalItems = $arrInputCSV.Count
-$strProgressActivity = 'Performing k-means clustering'
-$strProgressStatus = 'Calculating distances from items to cluster centroids'
-$strProgressCurrentOperationPrefix = 'Processing item'
-$timedateStartOfLoop = Get-Date
-# Create a queue for storing lagging timestamps for ETA calculation
-$queueLaggingTimestamps = New-Object System.Collections.Queue
-$queueLaggingTimestamps.Enqueue($timedateStartOfLoop)
-#endregion Collect Stats/Objects Needed for Writing Progress ##########################
-
-$intCounterLoop = 0
-if ($versionPS -ge ([version]'6.0')) {
-    # PowerShell v6.0 or newer
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $arrCentroid = ($kmeans.Clusters.Centroids)[$intCounterA]
-        foreach ($intItemIndex in $hashtableClustersToItems.Item($intCounterA)) {
-            #region Report Progress ########################################################
-            $intCurrentItemNumber = $intCounterLoop + 1 # Forward direction for loop
-            if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
-                # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
-                $timeDateLagging = $queueLaggingTimestamps.Dequeue()
-                $datetimeNow = Get-Date
-                $timespanTimeDelta = $datetimeNow - $timeDateLagging
-                $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
-                $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
-                $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
-                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
-            }
-            #endregion Report Progress ########################################################
-
-            # Centroid: $arrCentroid
-            # Embeddings for this item: @($arrEmbeddings[$intItemIndex])
-            # Distance: Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
-            $doubleDistance = Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
-
-            $psobject = New-Object PSCustomObject
-            $psobject | Add-Member -MemberType NoteProperty -Name 'ItemNumber' -Value $intItemIndex
-            $psobject | Add-Member -MemberType NoteProperty -Name 'DistanceFromCentroid' -Value $doubleDistance
-
-            # Add the updated object to the list
-            ($hashtableClustersToItemsAndDistances.Item($intCounterA)).Add($psobject)
-
-            #region Post-Loop Progress Reporting ###########################################
-            if ($intCurrentItemNumber -eq $intTotalItems) {
-                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
-            }
-            if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
-                # Add lagging timestamp to queue
-                $queueLaggingTimestamps.Enqueue((Get-Date))
-            }
-            # Increment counter
-            $intCounterLoop++
-            #endregion Post-Loop Progress Reporting ###########################################
+# Display warning/information messages if necessary
+if (($null -ne $NumberOfClusters) -and ($NumberOfClusters -gt 0)) {
+    if ($boolDoNotCalculateExtendedStatistics -eq $true) {
+        Write-Warning 'The script is running without calculating the silhouette score, Davies-Bouldin index, and Calinski-Harabasz index; this will significantly speed up execution, but may lead to a less-ideal selection for the number of clusters.'
+        if (([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $true) -and ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $true)) {
+            Write-Warning 'Additionally, the script is working in unsupervised mode; it will do its best to select the best number of clusters and output the results to a CSV file, but no statistics and no Excel workbook that contains information about alternative numbers of clusters will be created. Combined with the fact that the silhouette score, Davies-Bouldin index, and Calinski-Harabasz index are not being calculated, running unsupervised in this manner is not a recommended mode of execution.'
         }
-    }
-} else {
-    # PowerShell 5.0 or 5.1
-    for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-        $arrCentroid = ($kmeans.Clusters.Centroids)[$intCounterA]
-        foreach ($intItemIndex in $hashtableClustersToItems.Item($intCounterA)) {
-            #region Report Progress ########################################################
-            $intCurrentItemNumber = $intCounterLoop + 1 # Forward direction for loop
-            if ((($intCurrentItemNumber -ge ($intProgressReportingFrequency * 3)) -and ($intCurrentItemNumber % $intProgressReportingFrequency -eq 0)) -or ($intCurrentItemNumber -eq $intTotalItems)) {
-                # Create a progress bar after the first (3 x $intProgressReportingFrequency) items have been processed
-                $timeDateLagging = $queueLaggingTimestamps.Dequeue()
-                $datetimeNow = Get-Date
-                $timespanTimeDelta = $datetimeNow - $timeDateLagging
-                $intNumberOfItemsProcessedInTimespan = $intProgressReportingFrequency * ($queueLaggingTimestamps.Count + 1)
-                $doublePercentageComplete = ($intCurrentItemNumber - 1) / $intTotalItems
-                $intItemsRemaining = $intTotalItems - $intCurrentItemNumber + 1
-                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -PercentComplete ($doublePercentageComplete * 100) -CurrentOperation ($strProgressCurrentOperationPrefix + ' ' + $intCurrentItemNumber + ' of ' + $intTotalItems + ' (' + [string]::Format('{0:0.00}', ($doublePercentageComplete * 100)) + '%)') -SecondsRemaining (($timespanTimeDelta.TotalSeconds / $intNumberOfItemsProcessedInTimespan) * $intItemsRemaining)
-            }
-            #endregion Report Progress ########################################################
-
-            # Centroid: $arrCentroid
-            # Embeddings for this item: @($arrEmbeddings[$intItemIndex])
-            # Distance: Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
-            $doubleDistance = Measure-EuclideanDistance -Point1 $arrCentroid -Point2 @($arrEmbeddings[$intItemIndex])
-
-            $psobject = New-Object PSCustomObject
-            $psobject | Add-Member -MemberType NoteProperty -Name 'ItemNumber' -Value $intItemIndex
-            $psobject | Add-Member -MemberType NoteProperty -Name 'DistanceFromCentroid' -Value $doubleDistance
-
-            # Add the updated object to the list
-            [void](($hashtableClustersToItemsAndDistances.Item($intCounterA)).Add($psobject))
-
-            #region Post-Loop Progress Reporting ###########################################
-            if ($intCurrentItemNumber -eq $intTotalItems) {
-                Write-Progress -Activity $strProgressActivity -Status $strProgressStatus -Completed
-            }
-            if ($intCounterLoop % $intProgressReportingFrequency -eq 0) {
-                # Add lagging timestamp to queue
-                $queueLaggingTimestamps.Enqueue((Get-Date))
-            }
-            # Increment counter
-            $intCounterLoop++
-            #endregion Post-Loop Progress Reporting ###########################################
+    } else {
+        if (([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $true) -and ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $true)) {
+            Write-Information 'The script is working in unsupervised mode; it will automatically select the best number of clusters and output the results to a CSV file, but no statistics and no Excel workbook that contains information about alternative numbers of clusters will be created.'
         }
     }
 }
-#endregion Create Hashtable Including Euclidian Distance from Item to Centroid ########
 
-#region Generate Output CSV ########################################################
-Write-Debug 'Generating output CSV...'
+if ($intMinNumberOfClusters -ne 1) {
+    if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+        # We need to run it once for a single cluster to get the centroid for the whole
+        # data set
+        Write-Information ('Performing k-means clustering for 1 cluster to get the centroid for the whole dataset...')
+        $hashtableKToClusterArtifactsTEMP = @{}
+        Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifactsTEMP) -NumberOfClusters 1 -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset)
+    }
+
+    # Now we can run it for the specified range of clusters
+    if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+        for ($intK = $intMinNumberOfClusters; $intK -le $intMaxNumberOfClusters; $intK++) {
+            Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifacts) -NumberOfClusters $intK -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset)
+        }
+    } else {
+        # $boolDoNotCalculateExtendedStatistics is $true
+        for ($intK = $intMinNumberOfClusters; $intK -le $intMaxNumberOfClusters; $intK++) {
+            Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifacts) -NumberOfClusters $intK -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset) -DoNotCalculateExtendedStatistics
+        }
+    }
+} else {
+    if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+        for ($intK = $intMinNumberOfClusters; $intK -le $intMaxNumberOfClusters; $intK++) {
+            Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifacts) -NumberOfClusters $intK -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset)
+        }
+    } else {
+        # $boolDoNotCalculateExtendedStatistics is $true
+        for ($intK = $intMinNumberOfClusters; $intK -le $intMaxNumberOfClusters; $intK++) {
+            Invoke-KMeansClusteringForSpecifiedNumberOfClusters -ReferenceToHashtableOfNumberOfClustersToArtifacts ([ref]$hashtableKToClusterArtifacts) -NumberOfClusters $intK -ReferenceToTwoDimensionalArrayOfEmbeddings ([ref]$arrEmbeddings) -ReferenceToHashtableOfEuclideanDistancesBetweenItems ([ref]$hashtableEuclideanDistancesBetweenItems) -ReferenceToCentroidOverWholeDataset ([ref]$arrCentroidOverWholeDataset) -DoNotCalculateExtendedStatistics
+        }
+    }
+}
+#endregion Perform k-means clustering #################################################
+
+#region Calculate WCSS first and second derivative #################################
+if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+    $arrKeyStatistics = $hashtableKToClusterArtifacts.Values | Select-Object -Property @('NumberOfClusters', 'WithinClusterSumOfSquares', 'SilhouetteScore', 'DaviesBouldinIndex', 'CalinskiHarabaszIndex') | Sort-Object -Property 'NumberOfClusters'
+} else {
+    $arrKeyStatistics = $hashtableKToClusterArtifacts.Values | Select-Object -Property @('NumberOfClusters', 'WithinClusterSumOfSquares') | Sort-Object -Property 'NumberOfClusters'
+}
+$intCounterAMax = $arrKeyStatistics.Count - 1
+# Add WCSS first and second derivative properties to each object
+for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'WCSSFirstDerivative' -Value $null
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'WCSSSecondDerivative' -Value $null
+}
+
+# Calculate the first derivative
+$intCounterA = 0
+if ($intCounterAMax -ge 1) {
+    $doubleWCSSFirstDerivative = $arrKeyStatistics[$intCounterA + 1].WithinClusterSumOfSquares - $arrKeyStatistics[$intCounterA].WithinClusterSumOfSquares
+    $arrKeyStatistics[$intCounterA].WCSSFirstDerivative = $doubleWCSSFirstDerivative
+}
+for ($intCounterA = 1; $intCounterA -le $intCounterAMax - 1; $intCounterA++) {
+    $doubleWCSSFirstDerivative = ($arrKeyStatistics[$intCounterA + 1].WithinClusterSumOfSquares - $arrKeyStatistics[$intCounterA - 1].WithinClusterSumOfSquares) / 2
+    $arrKeyStatistics[$intCounterA].WCSSFirstDerivative = $doubleWCSSFirstDerivative
+}
+$intCounterA = $intCounterAMax
+if ($intCounterAMax -ge 1) {
+    $doubleWCSSFirstDerivative = $arrKeyStatistics[$intCounterA].WithinClusterSumOfSquares - $arrKeyStatistics[$intCounterA - 1].WithinClusterSumOfSquares
+    $arrKeyStatistics[$intCounterA].WCSSFirstDerivative = $doubleWCSSFirstDerivative
+}
+
+# Calculate the second derivative
+$intCounterA = 0
+if ($intCounterAMax -ge 1) {
+    $doubleWCSSSecondDerivative = $arrKeyStatistics[$intCounterA + 1].WCSSFirstDerivative - $arrKeyStatistics[$intCounterA].WCSSFirstDerivative
+    $arrKeyStatistics[$intCounterA].WCSSSecondDerivative = $doubleWCSSSecondDerivative
+}
+for ($intCounterA = 1; $intCounterA -le $intCounterAMax - 1; $intCounterA++) {
+    $doubleWCSSSecondDerivative = ($arrKeyStatistics[$intCounterA + 1].WCSSFirstDerivative - $arrKeyStatistics[$intCounterA - 1].WCSSFirstDerivative) / 2
+    $arrKeyStatistics[$intCounterA].WCSSSecondDerivative = $doubleWCSSSecondDerivative
+}
+$intCounterA = $intCounterAMax
+if ($intCounterAMax -ge 1) {
+    $doubleWCSSSecondDerivative = $arrKeyStatistics[$intCounterA].WCSSFirstDerivative - $arrKeyStatistics[$intCounterA - 1].WCSSFirstDerivative
+    $arrKeyStatistics[$intCounterA].WCSSSecondDerivative = $doubleWCSSSecondDerivative
+}
+#endregion Calculate WCSS first and second derivative #################################
+
+#region Rank the number of clusters to bias toward more clusters ###################
+$boolBiasedNumberOfClusters = $false
+$doubleMaxSihlouetteScore = $arrKeyStatistics | Sort-Object -Property 'SilhouetteScore' -Descending | Select-Object -First 1 -ExpandProperty 'SilhouetteScore'
+if ($doubleMaxSihlouetteScore -lt 0.4) {
+    if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
+        Write-Warning ('The maximum silhouette score was ' + [string]::Format('{0:0.00}', $doubleMaxSihlouetteScore) + ', which is less than 0.4; the data may not be well-clustered.')
+    } else {
+        Write-Warning ('The silhouette score was ' + [string]::Format('{0:0.00}', $doubleMaxSihlouetteScore) + ', which is less than 0.4; the data may not be well-clustered.')
+    }
+    # The data may not be well-clustered; rank the number of clusters to bias toward more clusters
+    $boolBiasedNumberOfClusters = $true
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'NumberOfClustersRank' -Value $null
+    }
+
+    $boolIdealPointFound = $false
+    $intUpperExpectedNumberOfClusters = [int]([Math]::Ceiling([Math]::Sqrt($arrInputCSV.Count)))
+    for ($intCounterA = $intCounterAMax; $intCounterA -ge 0; $intCounterA--) {
+        if ($arrKeyStatistics[$intCounterA].NumberOfClusters -eq $intUpperExpectedNumberOfClusters) {
+            $boolIdealPointFound = $true
+            $intCounterB = $intCounterA
+            break
+        }
+    }
+
+    if ($boolIdealPointFound -eq $false) {
+        if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
+            # Number of clusters was not specified
+            Write-Warning 'Could not find the ideal maximum point for the number of clusters; using the last point instead.'
+        }
+        $intCounterB = $intCounterAMax
+    }
+
+    $intCounterA = 1
+    $arrKeyStatistics[$intCounterB].NumberOfClustersRank = $intCounterA
+    $intLowestClusterProcessed = $intCounterB
+    $intCounterA++
+
+    for ($intCounterC = 0; ($intCounterB + $intCounterC + 1) -lt $arrKeyStatistics.Count; $intCounterC++) {
+        if ($intCounterB - ($intCounterC * 3) - 1 -ge 0) {
+            $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 1].NumberOfClustersRank = $intCounterA
+            $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 1
+            $intCounterA++
+        }
+        if ($intCounterB - ($intCounterC * 3) - 2 -ge 0) {
+            $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 2].NumberOfClustersRank = $intCounterA
+            $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 2
+            $intCounterA++
+        }
+        if ($intCounterB - ($intCounterC * 3) - 3 -ge 0) {
+            $arrKeyStatistics[$intCounterB - ($intCounterC * 3) - 3].NumberOfClustersRank = $intCounterA
+            $intLowestClusterProcessed = $intCounterB - ($intCounterC * 3) - 3
+            $intCounterA++
+        }
+        $arrKeyStatistics[$intCounterB + $intCounterC + 1].NumberOfClustersRank = $intCounterA
+        $intCounterA++
+    }
+
+    for ($intCounterB = $intLowestClusterProcessed - 1; $intCounterB -ge 0; $intCounterB--) {
+        $arrKeyStatistics[$intCounterB].NumberOfClustersRank = $intCounterA
+        $intCounterA++
+    }
+}
+#endregion Rank the number of clusters to bias toward more clusters ###################
+
+#region Rank the WCSS to bias toward tighter clusters ##############################
+for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'WCSSRank' -Value $null
+}
+
+$intCounterA = 1
+
+# Sort the array by WCSS
+$arrKeyStatistics | Sort-Object -Property 'WithinClusterSumOfSquares' | ForEach-Object {
+    $_.WCSSRank = $intCounterA
+    $intCounterA++
+}
+#endregion Rank the WCSS to bias toward tighter clusters ##############################
+
+#region Rank the WCSS second derivative to bias toward elbow point #################
+for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'WCSSSecondDerivativeRank' -Value $null
+}
+
+$intCounterA = 1
+
+# Higher values of WCSSSecondDerivativeRank indicates it's more likely the elbow point
+$arrKeyStatistics | Sort-Object -Property 'WCSSSecondDerivative' -Descending | ForEach-Object {
+    if ($null -eq $_.WCSSSecondDerivative) {
+        # First or second cluster - no second derivative
+        $_.WCSSSecondDerivativeRank = $intCounterAMax
+    } else {
+        $_.WCSSSecondDerivativeRank = $intCounterA
+        $intCounterA++
+    }
+}
+#endregion Rank the WCSS second derivative to bias toward elbow point #################
+
+#region Rank the Silhouette Score to bias toward higher values #####################
+if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'SilhouetteScoreRank' -Value $null
+    }
+
+    $intCounterA = 1
+
+    # Higher values of SilhouetteScoreRank indicate better clustering
+    $arrKeyStatistics | Sort-Object -Property 'SilhouetteScore' -Descending | ForEach-Object {
+        if ($null -eq $_.SilhouetteScore) {
+            $_.SilhouetteScoreRank = $intCounterAMax
+        } else {
+            $_.SilhouetteScoreRank = $intCounterA
+            $intCounterA++
+        }
+    }
+}
+#endregion Rank the Silhouette Score to bias toward higher values #####################
+
+#region Rank the Davies-Bouldin Index to bias toward lower values ##################
+if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'DaviesBouldinIndexRank' -Value $null
+    }
+
+    $intCounterA = 1
+
+    # Lower values of DaviesBouldinIndexRank indicate better clustering
+    $arrKeyStatistics | Sort-Object -Property 'DaviesBouldinIndex' | ForEach-Object {
+        if ($null -eq $_.DaviesBouldinIndex) {
+            $_.DaviesBouldinIndexRank = $intCounterAMax
+        } else {
+            $_.DaviesBouldinIndexRank = $intCounterA
+            $intCounterA++
+        }
+    }
+}
+#endregion Rank the Davies-Bouldin Index to bias toward lower values ##################
+
+#region Rank the Calinski-Harabasz Index to bias toward higher values ##############
+if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'CalinskiHarabaszIndexRank' -Value $null
+    }
+
+    $intCounterA = 1
+
+    # Higher values of CalinskiHarabaszIndexRank indicate better clustering
+    $arrKeyStatistics | Sort-Object -Property 'CalinskiHarabaszIndex' -Descending | ForEach-Object {
+        if ($null -eq $_.CalinskiHarabaszIndex) {
+            $_.CalinskiHarabaszIndexRank = $intCounterAMax
+        } else {
+            $_.CalinskiHarabaszIndexRank = $intCounterA
+            $intCounterA++
+        }
+    }
+}
+#endregion Rank the Calinski-Harabasz Index to bias toward higher values ##############
+
+#region Generate composite ranking #################################################
+for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+    $doubleCompositeScore = [double]0
+
+    $boolClusterSizeUsed = $false
+    $boolWCSSUsed = $false
+    $boolWCSSSecondDerivativeUsed = $false
+    $boolSihouetteScoreUsed = $false
+    $boolDaviesBouldinScoreUsed = $false
+    $boolCalinskiHarabaszScoreUsed = $false
+
+    if ($boolBiasedNumberOfClusters -eq $true) {
+        if ($null -ne $arrKeyStatistics[$intCounterA].NumberOfClustersRank) {
+            $boolClusterSizeUsed = $true
+            $doubleCompositeScore += $WeightingFactorForNumberOfClusters * $arrKeyStatistics[$intCounterA].NumberOfClustersRank
+        }
+    }
+
+    if ($null -ne $arrKeyStatistics[$intCounterA].WCSSRank) {
+        $boolWCSSUsed = $true
+        $doubleCompositeScore += $WeightingFactorForWCSS * $arrKeyStatistics[$intCounterA].WCSSRank
+    }
+
+    if ($null -ne $arrKeyStatistics[$intCounterA].WCSSSecondDerivativeRank) {
+        $boolWCSSSecondDerivativeUsed = $true
+        $doubleCompositeScore += $WeightingFactorForWCSSSecondDerivative * $arrKeyStatistics[$intCounterA].WCSSSecondDerivativeRank
+    }
+
+    if ($boolDoNotCalculateExtendedStatistics -eq $false) {
+        if ($null -ne $arrKeyStatistics[$intCounterA].SilhouetteScoreRank) {
+            $boolSihouetteScoreUsed = $true
+            $doubleCompositeScore += $WeightingFactorForSihouetteScore * $arrKeyStatistics[$intCounterA].SilhouetteScoreRank
+        }
+
+        if ($null -ne $arrKeyStatistics[$intCounterA].DaviesBouldinIndexRank) {
+            $boolDaviesBouldinScoreUsed = $true
+            $doubleCompositeScore += $WeightingFactorForDaviesBouldinScore * $arrKeyStatistics[$intCounterA].DaviesBouldinIndexRank
+        }
+
+        if ($null -ne $arrKeyStatistics[$intCounterA].CalinskiHarabaszIndexRank) {
+            $boolCalinskiHarabaszScoreUsed = $true
+            $doubleCompositeScore += $WeightingFactorForCalinskiHarabaszScore * $arrKeyStatistics[$intCounterA].CalinskiHarabaszIndexRank
+        }
+    }
+
+    $doubleDivisor = [double]0
+
+    if ($boolClusterSizeUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForNumberOfClusters
+    }
+    if ($boolWCSSUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForWCSS
+    }
+    if ($boolWCSSSecondDerivativeUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForWCSSSecondDerivative
+    }
+    if ($boolSihouetteScoreUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForSihouetteScore
+    }
+    if ($boolDaviesBouldinScoreUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForDaviesBouldinScore
+    }
+    if ($boolCalinskiHarabaszScoreUsed -eq $true) {
+        $doubleDivisor += $WeightingFactorForCalinskiHarabaszScore
+    }
+
+    if ($doubleDivisor -gt 0) {
+        $doubleCompositeScore /= $doubleDivisor
+    } else {
+        Write-Warning 'The divisor for the composite score was zero; the composite score will be set to zero.'
+        $doubleCompositeScore = 0
+    }
+
+    $arrKeyStatistics[$intCounterA] | Add-Member -MemberType NoteProperty -Name 'CompositeRank' -Value $doubleCompositeScore
+}
+#endregion Generate composite ranking #################################################
+
+#region Output statistics if requested #############################################
+Write-Information 'Generating output CSV of statistics...'
+if ([string]::IsNullOrEmpty($OutputCSVPathForAllClusterStatistics) -eq $false) {
+    $arrKeyStatistics | Export-Csv -Path $OutputCSVPathForAllClusterStatistics -NoTypeInformation
+}
+#endregion Output statistics if requested #############################################
+
+#region Output information about each k-means clustering operation (with varying numbers of clusters) if requested
+Write-Information 'Generating output Excel workbook for cluster information...'
+if ([string]::IsNullOrEmpty($OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters) -eq $false) {
+    $arrNumberOfClusters = @($hashtableKToClusterArtifacts.Keys)
+    $intCounterAMax = $arrNumberOfClusters.Count - 1
+    for ($intCounterA = 0; $intCounterA -le $intCounterAMax; $intCounterA++) {
+        $intNumberOfClusters = $arrNumberOfClusters[$intCounterA]
+
+        if ($versionPS -ge ([version]'6.0')) {
+            $listOutput = New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'
+        } else {
+            # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+            # of a generic list
+            # TODO: Fill in rationale for this
+            #
+            # Technically, in older versions of PowerShell, the type in the ArrayList will
+            # be a PSObject; but that does not matter for our purposes.
+            $listOutput = New-Object -TypeName 'System.Collections.ArrayList'
+        }
+
+        for ($intCounterB = 0; $intCounterB -lt $intNumberOfClusters; $intCounterB++) {
+            # Cluster #: $intCounterB
+
+            $arrSortedItems = $hashtableKToClusterArtifacts.Item($intNumberOfClusters).HashtableClustersToItemsAndDistances.Item($intCounterB) | Sort-Object -Property 'DistanceFromCentroid'
+            $intMostRepresentativeItem = ($arrSortedItems[0]).ItemNumber
+            $arrNMostRepresentativeItems = @($arrSortedItems | Select-Object -First $NSizeForMostRepresentativeDataPoints | ForEach-Object { $_.ItemNumber })
+            $strNMostRepresentativeItems = $arrNMostRepresentativeItems -Join '; '
+            $strItemsInCluster = @($arrSortedItems | ForEach-Object { $_.ItemNumber }) -Join '; '
+            $psobject = New-Object -TypeName 'PSObject'
+            $psobject | Add-Member -MemberType NoteProperty -Name 'MostRepresentativeItemIndex' -Value $intMostRepresentativeItem
+            $psobject | Add-Member -MemberType NoteProperty -Name 'CountOfNMostRepresentativeItems' -Value ($arrNMostRepresentativeItems.Count)
+            $psobject | Add-Member -MemberType NoteProperty -Name 'NMostRepresentativeItemIndices' -Value $strNMostRepresentativeItems
+            $psobject | Add-Member -MemberType NoteProperty -Name 'CountOfItemsInCluster' -Value ($arrSortedItems.Count)
+            $psobject | Add-Member -MemberType NoteProperty -Name 'ItemsInClusterIndices' -Value $strItemsInCluster
+
+            # Add the cluster information to the list
+            if ($versionPS -ge ([version]'6.0')) {
+                $listOutput.Add($psobject)
+            } else {
+                # On Windows PowerShell (versions older than 6.x), we use an ArrayList instead
+                # of a generic list
+                # TODO: Fill in rationale for this
+                #
+                # Technically, in older versions of PowerShell, the type in the ArrayList will
+                # be a PSObject; but that does not matter for our purposes.
+                [void]($listOutput.Add($psobject))
+            }
+        }
+
+        $listOutput |
+            Sort-Object -Property @(@{ Expression = 'CountOfItemsInCluster'; Descending = $true }, @{ Expression = 'MostRepresentativeItem'; Descending = $false }) |
+            Export-Excel -Path $OutputExcelWorkbookPathForClusterInformationForEachNumberOfClusters -WorksheetName ([string]$intNumberOfClusters + ' Clusters') -AutoFilter -FreezeTopRow -BoldTopRow
+    }
+}
+#endregion Output information about each k-means clustering operation (with varying numbers of clusters) if requested
+
+#region Select best number of clusters #############################################
+$PSCustomObjectTopCluster = $arrKeyStatistics | Sort-Object -Property 'CompositeRank' | Select-Object -First 1
+$intBestNumberOfClusters = $PSCustomObjectTopCluster.NumberOfClusters
+if (($null -eq $NumberOfClusters) -or ($NumberOfClusters -le 0)) {
+    # Number of clusters was not specified
+    Write-Information ('Best number of clusters: ' + $intBestNumberOfClusters)
+}
+#endregion Select best number of clusters #############################################
+
+#region Generate output CSV for selected number of clusters ########################
+Write-Information ('Generating output CSV for ' + $intBestNumberOfClusters + ' clusters')
+$intNumberOfClusters = $intBestNumberOfClusters
+
 if ($versionPS -ge ([version]'6.0')) {
     $listOutput = New-Object -TypeName 'System.Collections.Generic.List[PSCustomObject]'
 } else {
@@ -1587,10 +3168,10 @@ if ($versionPS -ge ([version]'6.0')) {
     $listOutput = New-Object -TypeName 'System.Collections.ArrayList'
 }
 
-for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
-    # Cluster #: $intCounterA
+for ($intCounterB = 0; $intCounterB -lt $intNumberOfClusters; $intCounterB++) {
+    # Cluster #: $intCounterB
 
-    $arrSortedItems = $hashtableClustersToItemsAndDistances.Item($intCounterA) | Sort-Object -Property 'DistanceFromCentroid'
+    $arrSortedItems = $hashtableKToClusterArtifacts.Item($intNumberOfClusters).HashtableClustersToItemsAndDistances.Item($intCounterB) | Sort-Object -Property 'DistanceFromCentroid'
     $intMostRepresentativeItem = ($arrSortedItems[0]).ItemNumber
     $arrNMostRepresentativeItems = @($arrSortedItems | Select-Object -First $NSizeForMostRepresentativeDataPoints | ForEach-Object { $_.ItemNumber })
     $strNMostRepresentativeItems = $arrNMostRepresentativeItems -Join '; '
@@ -1619,4 +3200,4 @@ for ($intCounterA = 0; $intCounterA -lt $intNumberOfClusters; $intCounterA++) {
 $listOutput |
     Sort-Object -Property @(@{ Expression = 'CountOfItemsInCluster'; Descending = $true }, @{ Expression = 'MostRepresentativeItem'; Descending = $false }) |
     Export-Csv -Path $OutputCSVPath -NoTypeInformation
-#endregion Generate Output CSV ########################################################
+#endregion Generate output CSV for selected number of clusters ########################

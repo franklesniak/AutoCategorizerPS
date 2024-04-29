@@ -1,5 +1,5 @@
 # Get-TextEmbeddingsUsingOpenAI.ps1
-# Version: 1.1.20240407.0
+# Version: 1.1.20240428.0
 
 <#
 .SYNOPSIS
@@ -3214,7 +3214,7 @@ if ($boolResult -eq $false) {
 
 #region Check for PowerShell module updates ########################################
 if ($DoNotCheckForModuleUpdates.IsPresent -eq $false) {
-    Write-Verbose 'Checking for module updates...'
+    Write-Information 'Checking for module updates...'
     $hashtableCustomNotUpToDateMessageToModuleNames = @{}
 
     $strAzNotUpToDateMessage = 'A newer version of the Az.Accounts and/or Az.KeyVault modules was found. Please consider updating it by running the following command:' + [System.Environment]::NewLine + 'Install-Module Az -Force;' + [System.Environment]::NewLine + [System.Environment]::NewLine + 'If the installation command fails, you may need to upgrade the version of PowerShellGet. To do so, run the following commands, then restart PowerShell:' + [System.Environment]::NewLine + 'Set-ExecutionPolicy Bypass -Scope Process -Force;' + [System.Environment]::NewLine + '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;' + [System.Environment]::NewLine + 'Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force;' + [System.Environment]::NewLine + 'Install-Module PowerShellGet -MinimumVersion 2.2.4 -SkipPublisherCheck -Force -AllowClobber;' + [System.Environment]::NewLine + [System.Environment]::NewLine
@@ -3311,7 +3311,7 @@ $queueLaggingTimestamps = New-Object System.Collections.Queue
 $queueLaggingTimestamps.Enqueue($timedateStartOfLoop)
 #endregion Collect Stats/Objects Needed for Writing Progress ##########################
 
-Write-Verbose ($strProgressStatus + '...')
+Write-Information ($strProgressActivity + '...')
 
 for ($intRowIndex = 0; $intRowIndex -lt $arrInputCSV.Count; $intRowIndex++) {
     #region Report Progress ########################################################
