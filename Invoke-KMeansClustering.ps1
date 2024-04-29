@@ -79,7 +79,7 @@ yourself a few seconds by specifying this parameter.
 .PARAMETER WeightingFactorForNumberOfClusters
 Optional parameter; specifies the weighting factor to apply to the number of clusters
 when calculating the composite index for selecting the number of clusters. The default
-value is 8. The number of clusters is only weighted when the maximum silhouette score
+value is 14. The number of clusters is only weighted when the maximum silhouette score
 across all iterations is less than 0.4, indicating potential poor clustering. When this
 happens, the script biases toward selecting more clusters.
 
@@ -93,14 +93,14 @@ be low when the number of clusters is high, which can lead to "over-fitting".
 .PARAMETER WeightingFactorForWCSSSecondDerivative
 Optional parameter; specifies the weighting factor to apply to the second derivative of
 the Within-Cluster Sum of Squares (WCSS) when calculating the composite index for
-selecting the number of clusters. The default value is 42. The second derivative of the
+selecting the number of clusters. The default value is 40. The second derivative of the
 WCSS indicates the change in slope, so the highest second derivative may indicate the
 "elbow point" in the WCSS plot, which is used to select the number of clusters.
 
 .PARAMETER WeightingFactorForSihouetteScore
 Optional parameter; specifies the weighting factor to apply to the Silhouette Score when
 calculating the composite index for selecting the number of clusters. The default value
-is 23. The Silhouette Score is a measure of how similar an object is to its own cluster
+is 18. The Silhouette Score is a measure of how similar an object is to its own cluster
 compared to other clusters. Silhouette Scores range from -1 to 1, with a high value
 indicating that the object is well matched to its own cluster and poorly matched to
 neighboring clusters.
@@ -108,7 +108,7 @@ neighboring clusters.
 .PARAMETER WeightingFactorForDaviesBouldinScore
 Optional parameter; specifies the weighting factor to apply to the Davies-Bouldin Score
 when calculating the composite index for selecting the number of clusters. The default
-value is 12. The Davies-Bouldin Score is a measure of the average similarity between
+value is 13. The Davies-Bouldin Score is a measure of the average similarity between
 each cluster and its most similar cluster. The lower the score, the better the
 clustering.
 
@@ -169,11 +169,11 @@ param (
     [Parameter(Mandatory = $false)][ValidateScript({ ($_ -ge 2) -or ($_ -eq 0) })][int]$NumberOfClusters,
     [Parameter(Mandatory = $false)][switch]$DoNotCalculateExtendedStatistics,
     [Parameter(Mandatory = $false)][switch]$DoNotCheckForModuleUpdates,
-    [Parameter(Mandatory = $false)][double]$WeightingFactorForNumberOfClusters = 8,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForNumberOfClusters = 14,
     [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSS = 3,
-    [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSSSecondDerivative = 42,
-    [Parameter(Mandatory = $false)][double]$WeightingFactorForSihouetteScore = 23,
-    [Parameter(Mandatory = $false)][double]$WeightingFactorForDaviesBouldinScore = 12,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForWCSSSecondDerivative = 40,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForSihouetteScore = 18,
+    [Parameter(Mandatory = $false)][double]$WeightingFactorForDaviesBouldinScore = 13,
     [Parameter(Mandatory = $false)][double]$WeightingFactorForCalinskiHarabaszScore = 12
 )
 
