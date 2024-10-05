@@ -1250,7 +1250,6 @@ function Get-SingleChatGPTResponseRobust {
     # then continue on. Likewise, non-terminating errors will also not output anything,
     # but they do not kick to the trap statement; they simply continue on.
     $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
-    Write-host "Calling OpenAI Chat Completions API with the following parameters: $params"
     # Call the OpenAI Chat Completions API to retrieve the response
     $PSCustomObjectResponse = Invoke-RestMethod @params -TimeoutSec 180 -DisableKeepAlive
 
