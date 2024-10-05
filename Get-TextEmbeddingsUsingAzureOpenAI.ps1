@@ -2988,8 +2988,8 @@ function Get-GPTEmbeddingsRobust {
         max_tokens = $intGPTMaxTokens
         temperature = $doubleTemperature
     } | ConvertTo-Json
-
-    $url = 'https://wm-rag-azure-openai.openai.azure.com/openai/deployments/embedding-3-large/embeddings?api-version=2024-02-01' 
+    # Replace with your Azure OpenAI url for your instnace and the deployment model you created
+    $url = 'https://<REPLACE_WITH_INSTANCEURL>/openai/deployments/<REPLACE_WITH_DEPLOYMENT_NAME>/embeddings?api-version=2024-02-01' 
 
     $params = @{
         Uri = $url

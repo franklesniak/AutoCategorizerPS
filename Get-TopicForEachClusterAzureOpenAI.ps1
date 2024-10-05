@@ -1227,8 +1227,8 @@ function Get-SingleChatGPTResponseRobust {
         top_p = 0.5
         temperature = $doubleTemperature
     } | ConvertTo-Json
-
-    $url = 'https://wm-rag-azure-openai.openai.azure.com/openai/deployments/azure-ai-search-demo-chat4o/chat/completions?api-version=2024-06-01'
+    # Replace with your instance URL, and deployment name
+    $url = 'https://<INSTANCEURL>/openai/deployments/<DeploymentName>/chat/completions?api-version=2024-06-01'
 
     $params = @{
         Uri = $url
