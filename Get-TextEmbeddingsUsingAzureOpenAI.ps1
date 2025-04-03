@@ -2822,7 +2822,7 @@ function Get-GPTEmbeddingsRobust {
     # $strTextToEmbed = 'When I went to this restaurant, I was very disappointed in the server. The service was very slow and I waited over 30 minutes to get my water refilled. The food was also not very good. I will not be returning to this restaurant.'
     # $boolSuccess = Get-GPTEmbeddingsRobust ([ref]$arrReturnData) 1 8 ([ref]$strAPIKey) ([ref]$strModel) $intMaxTokens $doubleTemperature ([ref]$strTextToEmbed)
     #
-    # Version: 1.0.20240306.0
+    # Version: 1.0.20250403.0
     #endregion FunctionHeader #########################################################
 
     #region License ################################################################
@@ -3049,7 +3049,7 @@ function Get-GPTEmbeddingsRobust {
             if (@($PSCustomObjectResponse.data.embedding).Count -eq 0) {
                 # No embeddings were returned
             } else {
-                if (@($PSCustomObjectResponse.data.embedding)[0] -eq $null) {
+                if ($null -eq @($PSCustomObjectResponse.data.embedding)[0]) {
                     # No embeddings were returned
                 } else {
                     # Embeddings were returned
