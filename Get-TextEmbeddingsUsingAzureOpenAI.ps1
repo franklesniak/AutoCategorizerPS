@@ -1,5 +1,5 @@
 # Get-TextEmbeddingsUsingOpenAI.ps1
-# Version: 1.1.20240407.0
+# Version: 1.1.20250403.0
 
 <#
 .SYNOPSIS
