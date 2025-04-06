@@ -1,5 +1,5 @@
 # Get-TextEmbeddingsUsingOpenAI.ps1
-# Version: 1.1.20250403.0
+# Version: 1.2.20250403.0
 
 <#
 .SYNOPSIS
@@ -37,6 +37,29 @@ the embeddings added.
 If supplied, the script will skip the check for PowerShell module updates. This can
 speed up the script's execution time, but it is not recommended unless the user knows
 that the computer's modules are already up-to-date.
+
+.PARAMETER ReferenceToAzureOpenAIEndpoint
+Required parameter. Specifies the endpoint for the Azure OpenAI service. To view the
+endpoint, for an Azure OpenAI resource, go to the Azure portal and select the resource.
+Then, navigate to "Keys and Endpoint" in the left-hand menu. The endpoint will be in
+the format 'https://<resource-name>.openai.azure.com/' where <resource-name> is the
+name of the Azure OpenAI resource. Supply the complete endpoint URL, including the
+https:// prefix, the .openai.azure.com suffix, and the trailing slash.
+
+.PARAMETER ReferenceToAzureOpenAIDeploymentName
+Required parameter. Specifies the deployment name in the Azure OpenAI service instance
+that represents the embeddings model to be used. The model deployments can be viewed in
+Azure AI Foundry. To view the model deployments, go to
+https://ai.azure.com/resource/deployments, then verify that the correct Azure OpenAI
+instance is selected at the top. The model deployments are listed in the middle pane.
+For this parameter, supply the name of the deployment that represents the embeddings
+model to be used. The deployment name is case-sensitive.
+
+.PARAMETER AzureOpenAIAPIVersion
+Specifies the API version to use when connecting to the Azure OpenAI service. The
+API version is supplied in YYYY-MM-DD format, and, if this parameter is omitted, the
+script defaults to version 2024-06-01. The latest GA API version can be viewed here:
+https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation?source=recommendations#latest-ga-api-release
 
 .PARAMETER EntraIdTenantId
 Specifies the tenant ID to use when authenticating to the Entra ID. The default
@@ -78,7 +101,7 @@ None
 #>
 
 #region License ################################################################
-# Copyright (c) 2024 Frank Lesniak and Daniel Stutz
+# Copyright (c) 2025 Frank Lesniak and Daniel Stutz
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of
 # this software and associated documentation files (the "Software"), to deal in the
@@ -105,6 +128,9 @@ param (
     [Parameter(Mandatory = $false)][string]$NewDataFieldNameForEmbeddings = 'Embeddings',
     [Parameter(Mandatory = $true)][string]$OutputCSVPath,
     [Parameter(Mandatory = $false)][switch]$DoNotCheckForModuleUpdates,
+    [Parameter(Mandatory = $true)][string]$ReferenceToAzureOpenAIEndpoint,
+    [Parameter(Mandatory = $true)][string]$ReferenceToAzureOpenAIDeploymentName,
+    [Parameter(Mandatory = $false)][string]$AzureOpenAIAPIVersion = '2024-06-01',
     [Parameter(Mandatory = $false)][string]$EntraIdTenantId = '4cb2f1c9-c771-4ce5-a581-9376e59ea807',
     [Parameter(Mandatory = $false)][string]$AzureSubscriptionId = 'b337b2c0-fe35-4e3c-9434-7b7a15da61b7',
     [Parameter(Mandatory = $false)][string]$AzureKeyVaultName = 'powershell-conf-2024',
@@ -2776,7 +2802,575 @@ function Copy-Object {
     }
 }
 
-function Get-GPTEmbeddingsRobust {
+function Get-AzureOpenAIGPTEmbeddingsRobust {
+    # .SYNOPSIS
+    # This function retrieves embeddings from Azure OpenAI.
+    #
+    # .DESCRIPTION
+    # This function retrieves embeddings from Azure OpenAI. Embeddings are a numerical
+    # representation of text that can be used for various natural language processing
+    # tasks.
+    #
+    # .PARAMETER ReferenceToArrayOfEmbeddings
+    # This parameter is required; it is a reference to an array that will be used to
+    # store the embeddings retrieved from the Azure OpenAI service.
+    #
+    # .PARAMETER CurrentAttemptNumber
+    # This parameter is required; it is an integer indicating the current attempt
+    # number. When calling this function for the first time, it should be 1.
+    #
+    # .PARAMETER MaxAttempts
+    # This parameter is required; it is an integer representing the maximum number
+    # of attempts that the function will observe before giving up.
+    #
+    # .PARAMETER ReferenceToAzureOpenAIEndpoint
+    # This parameter is required; it is a reference to a string containing the endpoint
+    # for the Azure OpenAI service. To view the endpoint, for an Azure OpenAI resource,
+    # go to the Azure portal and select the resource. Then, navigate to "Keys and
+    # Endpoint" in the left-hand menu. The endpoint will be in the format
+    # 'https://<resource-name>.openai.azure.com/' where <resource-name> is the name of
+    # the Azure OpenAI resource. Supply the complete endpoint URL, including the
+    # https:// prefix, the .openai.azure.com suffix, and the trailing slash.
+    #
+    # .PARAMETER ReferenceToAzureOpenAIDeploymentName
+    # This parameter is required; it is a reference to a string that specifies the
+    # deployment name in the Azure OpenAI service instance that represents the
+    # embeddings model to be used. The model deployments can be viewed in Azure AI
+    # Foundry. To view the model deployments, go to
+    # https://ai.azure.com/resource/deployments, then verify that the correct Azure
+    # OpenAI instance is selected at the top. The model deployments are listed in the
+    # middle pane. For this parameter, supply the name of the deployment that
+    # represents the embeddings model to be used. The deployment name is case-
+    # sensitive.
+    #
+    # .PARAMETER ReferenceToAPIKey
+    # This parameter is required; is a reference to a string containing a valid Azure
+    # OpenAI API key that the function will use to retrieve embeddings.
+    #
+    # .PARAMETER ReferenceToTextToEmbed
+    # This parameter is required; it is a reference to a string containing the text
+    # that the function will embed.
+    #
+    # .PARAMETER AzureOpenAIAPIVersion
+    # This parameter is optional; if supplied, it is a string that specifies the API
+    # version to use when connecting to the Azure OpenAI service. The API version is
+    # supplied in YYYY-MM-DD format, and, if this parameter is omitted, the script
+    # defaults to version 2024-06-01. The latest GA API version can be viewed here:
+    # https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation?source=recommendations#latest-ga-api-release
+    #
+    # .PARAMETER MaxTokens
+    # This parameter is optional; if supplied, it is an integer representing the
+    # maximum number of tokens that the function will allow in the text to be embedded.
+    # If the parameter is omitted, the function defaults to 8191 tokens.
+    #
+    # .PARAMETER Temperature
+    # This parameter is optional; if supplied, it is a double representing the
+    # temperature to use when generating the embeddings. A value of 0 is the most
+    # deterministic, while a value greater than 0 introduces randomness. The maximum
+    # value is 1.0 and the minimum value is 0.0. The default value is 0.2.
+    #
+    # .EXAMPLE
+    # $arrEmbeddings = @()
+    # $strAzureOpenAIEndpoint = 'https://flesniak-dstutz.openai.azure.com/'
+    # $strAzureOpenAIDeploymentName = 'private-embeddings'
+    # $strAzureOpenAIAPIVersion = '2024-06-01'
+    # $strAPIKey = 'abcdefghijklmnopqrstuvwxyzabcdef'
+    # $strTextToEmbed = 'When I went to this restaurant, I was very disappointed in the server. The service was very slow and I waited over 30 minutes to get my water refilled. The food was also not very good. I will not be returning to this restaurant.'
+    # $intMaxTokens = 8191
+    # $doubleTemperature = 0.2
+    # $boolSuccess = Get-AzureOpenAIGPTEmbeddingsRobust -ReferenceToArrayOfEmbeddings ([ref]$arrEmbeddings) -CurrentAttemptNumber 1 -MaxAttempts 8 -ReferenceToAzureOpenAIEndpoint ([ref]$strAzureOpenAIEndpoint) -ReferenceToAzureOpenAIDeploymentName ([ref]$strAzureOpenAIDeploymentName) -AzureOpenAIAPIVersion $strAzureOpenAIAPIVersion -ReferenceToAPIKey ([ref]$strAPIKey) -MaxTokens $intMaxTokens -Temperature $doubleTemperature -ReferenceToTextToEmbed $strTextToEmbed
+    #
+    # .INPUTS
+    # None. You can't pipe objects to Get-AzureOpenAIGPTEmbeddingsRobust.
+    #
+    # .OUTPUTS
+    # System.Boolean. Get-AzureOpenAIGPTEmbeddingsRobust returns a boolean value
+    # indiciating whether the process completed successfully. $true means the
+    # process completed successfully; $false means there was an error.
+    #
+    # .NOTES
+    # Version: 2.0.20250403.0
+
+    #region License ############################################################
+    # Copyright (c) 2025 Frank Lesniak and Daniel Stutz
+    #
+    # Permission is hereby granted, free of charge, to any person obtaining a copy
+    # of this software and associated documentation files (the "Software"), to deal
+    # in the Software without restriction, including without limitation the rights
+    # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    # copies of the Software, and to permit persons to whom the Software is
+    # furnished to do so, subject to the following conditions:
+    #
+    # The above copyright notice and this permission notice shall be included in
+    # all copies or substantial portions of the Software.
+    #
+    # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    # SOFTWARE.
+    #endregion License ############################################################
+
+    ################### UPDATE PARAMETER LIST AS NECESSARY; SET DEFAULT VALUES IF YOU WANT TO DEFAULT TO SOMETHING OTHER THAN NULL IF THE PARAMETER IS OMITTED ###################
+    param (
+        [ref]$ReferenceToArrayOfEmbeddings = ([ref]$null),
+        [int]$CurrentAttemptNumber = 1,
+        [int]$MaxAttempts = 1,
+        [string]$ReferenceToAzureOpenAIEndpoint = '',
+        [string]$ReferenceToAzureOpenAIDeploymentName = '',
+        [string]$ReferenceToAPIKey = '',
+        [string]$ReferenceToTextToEmbed = '',
+        [string]$AzureOpenAIAPIVersion = '2024-06-01',
+        [int]$MaxTokens = 8191,
+        [double]$Temperature = 0.2
+    )
+
+    #region FunctionsToSupportErrorHandling ####################################
+    function Get-ReferenceToLastError {
+        # .SYNOPSIS
+        # Gets a reference (memory pointer) to the last error that
+        # occurred.
+        #
+        # .DESCRIPTION
+        # Returns a reference (memory pointer) to $null ([ref]$null) if no
+        # errors on on the $error stack; otherwise, returns a reference to
+        # the last error that occurred.
+        #
+        # .EXAMPLE
+        # # Intentionally empty trap statement to prevent terminating
+        # # errors from halting processing
+        # trap { }
+        #
+        # # Retrieve the newest error on the stack prior to doing work:
+        # $refLastKnownError = Get-ReferenceToLastError
+        #
+        # # Store current error preference; we will restore it after we do
+        # # some work:
+        # $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+        #
+        # # Set ErrorActionPreference to SilentlyContinue; this will suppress
+        # # error output. Terminating errors will not output anything, kick
+        # # to the empty trap statement and then continue on. Likewise, non-
+        # # terminating errors will also not output anything, but they do not
+        # # kick to the trap statement; they simply continue on.
+        # $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+        #
+        # # Do something that might trigger an error
+        # Get-Item -Path 'C:\MayNotExist.txt'
+        #
+        # # Restore the former error preference
+        # $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
+        #
+        # # Retrieve the newest error on the error stack
+        # $refNewestCurrentError = Get-ReferenceToLastError
+        #
+        # $boolErrorOccurred = $false
+        # if (($null -ne $refLastKnownError.Value) -and ($null -ne $refNewestCurrentError.Value)) {
+        #     # Both not $null
+        #     if (($refLastKnownError.Value) -ne ($refNewestCurrentError.Value)) {
+        #         $boolErrorOccurred = $true
+        #     }
+        # } else {
+        #     # One is $null, or both are $null
+        #     # NOTE: $refLastKnownError could be non-null, while
+        #     # $refNewestCurrentError could be null if $error was cleared;
+        #     # this does not indicate an error.
+        #     #
+        #     # So:
+        #     # If both are null, no error.
+        #     # If $refLastKnownError is null and $refNewestCurrentError is
+        #     # non-null, error.
+        #     # If $refLastKnownError is non-null and $refNewestCurrentError
+        #     # is null, no error.
+        #     #
+        #     if (($null -eq $refLastKnownError.Value) -and ($null -ne $refNewestCurrentError.Value)) {
+        #         $boolErrorOccurred = $true
+        #     }
+        # }
+        #
+        # .INPUTS
+        # None. You can't pipe objects to Get-ReferenceToLastError.
+        #
+        # .OUTPUTS
+        # System.Management.Automation.PSReference ([ref]).
+        # Get-ReferenceToLastError returns a reference (memory pointer) to
+        # the last error that occurred. It returns a reference to $null
+        # ([ref]$null) if there are no errors on on the $error stack.
+        #
+        # .NOTES
+        # Version: 2.0.20250215.0
+
+        #region License ################################################
+        # Copyright (c) 2025 Frank Lesniak
+        #
+        # Permission is hereby granted, free of charge, to any person
+        # obtaining a copy of this software and associated documentation
+        # files (the "Software"), to deal in the Software without
+        # restriction, including without limitation the rights to use,
+        # copy, modify, merge, publish, distribute, sublicense, and/or sell
+        # copies of the Software, and to permit persons to whom the
+        # Software is furnished to do so, subject to the following
+        # conditions:
+        #
+        # The above copyright notice and this permission notice shall be
+        # included in all copies or substantial portions of the Software.
+        #
+        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+        # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+        # OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+        # NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+        # HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+        # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+        # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+        # OTHER DEALINGS IN THE SOFTWARE.
+        #endregion License ################################################
+
+        if ($Error.Count -gt 0) {
+            return ([ref]($Error[0]))
+        } else {
+            return ([ref]$null)
+        }
+    }
+
+    function Test-ErrorOccurred {
+        # .SYNOPSIS
+        # Checks to see if an error occurred during a time period, i.e.,
+        # during the execution of a command.
+        #
+        # .DESCRIPTION
+        # Using two references (memory pointers) to errors, this function
+        # checks to see if an error occurred based on differences between
+        # the two errors.
+        #
+        # To use this function, you must first retrieve a reference to the
+        # last error that occurred prior to the command you are about to
+        # run. Then, run the command. After the command completes, retrieve
+        # a reference to the last error that occurred. Pass these two
+        # references to this function to determine if an error occurred.
+        #
+        # .PARAMETER ReferenceToEarlierError
+        # This parameter is required; it is a reference (memory pointer) to
+        # a System.Management.Automation.ErrorRecord that represents the
+        # newest error on the stack earlier in time, i.e., prior to running
+        # the command for which you wish to determine whether an error
+        # occurred.
+        #
+        # If no error was on the stack at this time,
+        # ReferenceToEarlierError must be a reference to $null
+        # ([ref]$null).
+        #
+        # .PARAMETER ReferenceToLaterError
+        # This parameter is required; it is a reference (memory pointer) to
+        # a System.Management.Automation.ErrorRecord that represents the
+        # newest error on the stack later in time, i.e., after to running
+        # the command for which you wish to determine whether an error
+        # occurred.
+        #
+        # If no error was on the stack at this time, ReferenceToLaterError
+        # must be a reference to $null ([ref]$null).
+        #
+        # .EXAMPLE
+        # # Intentionally empty trap statement to prevent terminating
+        # # errors from halting processing
+        # trap { }
+        #
+        # # Retrieve the newest error on the stack prior to doing work
+        # if ($Error.Count -gt 0) {
+        #     $refLastKnownError = ([ref]($Error[0]))
+        # } else {
+        #     $refLastKnownError = ([ref]$null)
+        # }
+        #
+        # # Store current error preference; we will restore it after we do
+        # # some work:
+        # $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+        #
+        # # Set ErrorActionPreference to SilentlyContinue; this will
+        # # suppress error output. Terminating errors will not output
+        # # anything, kick to the empty trap statement and then continue
+        # # on. Likewise, non- terminating errors will also not output
+        # # anything, but they do not kick to the trap statement; they
+        # # simply continue on.
+        # $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+        #
+        # # Do something that might trigger an error
+        # Get-Item -Path 'C:\MayNotExist.txt'
+        #
+        # # Restore the former error preference
+        # $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
+        #
+        # # Retrieve the newest error on the error stack
+        # if ($Error.Count -gt 0) {
+        #     $refNewestCurrentError = ([ref]($Error[0]))
+        # } else {
+        #     $refNewestCurrentError = ([ref]$null)
+        # }
+        #
+        # if (Test-ErrorOccurred -ReferenceToEarlierError $refLastKnownError -ReferenceToLaterError $refNewestCurrentError) {
+        #     # Error occurred
+        # } else {
+        #     # No error occurred
+        # }
+        #
+        # .INPUTS
+        # None. You can't pipe objects to Test-ErrorOccurred.
+        #
+        # .OUTPUTS
+        # System.Boolean. Test-ErrorOccurred returns a boolean value
+        # indicating whether an error occurred during the time period in
+        # question. $true indicates an error occurred; $false indicates no
+        # error occurred.
+        #
+        # .NOTES
+        # This function also supports the use of positional parameters
+        # instead of named parameters. If positional parameters are used
+        # instead of named parameters, then two positional parameters are
+        # required:
+        #
+        # The first positional parameter is a reference (memory pointer) to
+        # a System.Management.Automation.ErrorRecord that represents the
+        # newest error on the stack earlier in time, i.e., prior to running
+        # the command for which you wish to determine whether an error
+        # occurred. If no error was on the stack at this time, the first
+        # positional parameter must be a reference to $null ([ref]$null).
+        #
+        # The second positional parameter is a reference (memory pointer)
+        # to a System.Management.Automation.ErrorRecord that represents the
+        # newest error on the stack later in time, i.e., after to running
+        # the command for which you wish to determine whether an error
+        # occurred. If no error was on the stack at this time,
+        # ReferenceToLaterError must be a reference to $null ([ref]$null).
+        #
+        # Version: 2.0.20250215.0
+
+        #region License ################################################
+        # Copyright (c) 2025 Frank Lesniak
+        #
+        # Permission is hereby granted, free of charge, to any person
+        # obtaining a copy of this software and associated documentation
+        # files (the "Software"), to deal in the Software without
+        # restriction, including without limitation the rights to use,
+        # copy, modify, merge, publish, distribute, sublicense, and/or sell
+        # copies of the Software, and to permit persons to whom the
+        # Software is furnished to do so, subject to the following
+        # conditions:
+        #
+        # The above copyright notice and this permission notice shall be
+        # included in all copies or substantial portions of the Software.
+        #
+        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+        # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+        # OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+        # NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+        # HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+        # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+        # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+        # OTHER DEALINGS IN THE SOFTWARE.
+        #endregion License ################################################
+        param (
+            [ref]$ReferenceToEarlierError = ([ref]$null),
+            [ref]$ReferenceToLaterError = ([ref]$null)
+        )
+
+        # TODO: Validate input
+
+        $boolErrorOccurred = $false
+        if (($null -ne $ReferenceToEarlierError.Value) -and ($null -ne $ReferenceToLaterError.Value)) {
+            # Both not $null
+            if (($ReferenceToEarlierError.Value) -ne ($ReferenceToLaterError.Value)) {
+                $boolErrorOccurred = $true
+            }
+        } else {
+            # One is $null, or both are $null
+            # NOTE: $ReferenceToEarlierError could be non-null, while
+            # $ReferenceToLaterError could be null if $error was cleared;
+            # this does not indicate an error.
+            # So:
+            # - If both are null, no error.
+            # - If $ReferenceToEarlierError is null and
+            #   $ReferenceToLaterError is non-null, error.
+            # - If $ReferenceToEarlierError is non-null and
+            #   $ReferenceToLaterError is null, no error.
+            if (($null -eq $ReferenceToEarlierError.Value) -and ($null -ne $ReferenceToLaterError.Value)) {
+                $boolErrorOccurred = $true
+            }
+        }
+
+        return $boolErrorOccurred
+    }
+    #endregion FunctionsToSupportErrorHandling ####################################
+
+    trap {
+        # Intentionally left empty to prevent terminating errors from halting
+        # processing
+    }
+
+    if ([string]::IsNullOrEmpty($ReferenceToAzureOpenAIEndpoint)) {
+        Write-Error 'Get-AzureOpenAIGPTEmbeddingsRobust must be called with the ReferenceToAzureOpenAIEndpoint parameter, which is a string containing the endpoint for the Azure OpenAI service. To view the endpoint, for an Azure OpenAI resource, go to the Azure portal and select the resource. Then, navigate to "Keys and Endpoint" in the left-hand menu. The endpoint will be in the format https://<resource-name>.openai.azure.com/ where <resource-name> is the name of the Azure OpenAI resource. Supply the complete endpoint URL, including the https:// prefix, the .openai.azure.com suffix, and the trailing slash.'
+        return $false
+    }
+    if ($ReferenceToAzureOpenAIEndpoint.Substring($ReferenceToAzureOpenAIEndpoint.Length - 1) -ne '/') {
+        Write-Error 'Get-AzureOpenAIGPTEmbeddingsRobust must be called with the ReferenceToAzureOpenAIEndpoint parameter, which is a string containing the endpoint for the Azure OpenAI service. To view the endpoint, for an Azure OpenAI resource, go to the Azure portal and select the resource. Then, navigate to "Keys and Endpoint" in the left-hand menu. The endpoint will be in the format https://<resource-name>.openai.azure.com/ where <resource-name> is the name of the Azure OpenAI resource. Supply the complete endpoint URL, including the https:// prefix, the .openai.azure.com suffix, and the trailing slash.'
+        return $false
+    }
+    if ([string]::IsNullOrEmpty($ReferenceToAzureOpenAIDeploymentName)) {
+        Write-Error 'Get-AzureOpenAIGPTEmbeddingsRobust must be called with the ReferenceToAzureOpenAIDeploymentName parameter, which is a string containing the deployment name in the Azure OpenAI service instance that represents the embeddings model to be used. The model deployments can be viewed in Azure AI Foundry. To view the model deployments, go to https://ai.azure.com/resource/deployments, then verify that the correct Azure OpenAI instance is selected at the top. The model deployments are listed in the middle pane. For this parameter, supply the name of the deployment that represents the embeddings model to be used. The deployment name is case-sensitive.'
+        return $false
+    }
+    if ([string]::IsNullOrEmpty($ReferenceToAPIKey)) {
+        Write-Error 'Get-AzureOpenAIGPTEmbeddingsRobust must be called with the ReferenceToAPIKey parameter, which is a string containing a valid Azure OpenAI API key that the function will use to retrieve embeddings.'
+        return $false
+    }
+    if ([string]::IsNullOrEmpty($ReferenceToTextToEmbed)) {
+        Write-Error 'Get-AzureOpenAIGPTEmbeddingsRobust must be called with the ReferenceToTextToEmbed parameter and a non-empty string supplied. This parameter contains the text that the function will embed.'
+        return $false
+    }
+
+    # TODO: validate $ReferenceToArrayOfEmbeddings is a reference to an array
+    # TODO: validate we are on PowerShell 3 or later
+
+    $strDescriptionOfWhatWeAreDoingInThisFunction = 'retrieving embeddings from OpenAI API'
+
+    ################### SET THIS TO $true IF YOU WANT TO OUTPUT A NON-TERMINATING ERROR (Write-Error) WHEN THE FUNCTION RETRIES ###################
+    $boolOutputErrorOnFunctionRetry = $false
+
+    ################### SET THIS TO $false IF YOU DO NOT WANT TO OUTPUT A WARNING (Write-Warning) WHEN THE FUNCTION RETRIES ###################
+    $boolOutputWarningOnFunctionRetry = $true
+
+    ################### SET THIS TO $true IF YOU WANT TO OUTPUT VERBOSE INFORMATION (Write-Verbose) WHEN THE FUNCTION RETRIES ###################
+    $boolOutputVerboseOnFunctionRetry = $false
+
+    ################### SET THIS TO $true IF YOU WANT TO OUTPUT DEBUGGING INFORMATION (Write-Debug) WHEN THE FUNCTION RETRIES ###################
+    $boolOutputDebugOnFunctionRetry = $false
+
+    ################### SET THIS TO $true IF YOU WANT TO OUTPUT A NON-TERMINATING ERROR (Write-Error) WHEN THE FUNCTION RUNS OUT OF RETRIES AND GIVES UP ###################
+    $boolOutputErrorOnFunctionMaximumAttemptsExceeded = $true
+
+    ################### SET THIS TO $false IF YOU DO NOT WANT TO OUTPUT A WARNING (Write-Warning) WHEN THE FUNCTION RUNS OUT OF RETRIES AND GIVES UP ###################
+    $boolOutputWarningOnFunctionMaximumAttemptsExceeded = $false
+
+    ################### SET THIS TO $true IF YOU WANT TO OUTPUT VERBOSE INFORMATION (Write-Verbose) WHEN THE FUNCTION RUNS OUT OF RETRIES AND GIVES UP ###################
+    $boolOutputVerboseOnFunctionMaximumAttemptsExceeded = $false
+
+    ################### SET THIS TO $true IF YOU WANT TO OUTPUT DEBUGGING INFORMATION (Write-Debug) WHEN THE FUNCTION RUNS OUT OF RETRIES AND GIVES UP ###################
+    $boolOutputDebugOnFunctionMaximumAttemptsExceeded = $false
+
+    $headers = [ordered]@{
+        'api-key' = $refStrGPTAPIKey.Value
+    }
+
+    $strJSONRequestBody = @{
+        input = $refStrTextToEmbed.Value
+        max_tokens = $intGPTMaxTokens
+        temperature = $doubleTemperature
+    } | ConvertTo-Json
+    # Replace with your Azure OpenAI url for your instnace and the deployment model you created
+    $url = 'https://<REPLACE_WITH_INSTANCEURL>/openai/deployments/<REPLACE_WITH_DEPLOYMENT_NAME>/embeddings?api-version=2024-02-01'
+
+    $params = @{
+        Uri = $url
+        Headers = $headers
+        Method = 'Post'
+        Body = $strJSONRequestBody
+        ContentType = 'application/json'
+    }
+
+    # Retrieve the newest error on the stack prior to doing work
+    $refLastKnownError = Get-ReferenceToLastError
+
+    # Store current error preference; we will restore it after we do the work of
+    # this function
+    $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+
+    # Set ErrorActionPreference to SilentlyContinue; this will suppress error
+    # output. Terminating errors will not output anything, kick to the empty trap
+    # statement and then continue on. Likewise, non-terminating errors will also
+    # not output anything, but they do not kick to the trap statement; they simply
+    # continue on.
+    $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+
+    # Do the work of this function...
+    ################### REPLACE THE FOLLOWING LINE WITH WHATEVER REQUIRES ERROR HANDLING. WHATEVER YOU PLACE HERE MUST BE A ONE-LINER FOR ERROR HANDLING TO WORK CORRECTLY! ###################
+    $output = @(Get-DataFromCloudServiceCmdlet $objPlaceHolderInputObject)
+
+    # Restore the former error preference
+    $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
+
+    # Retrieve the newest error on the error stack
+    $refNewestCurrentError = Get-ReferenceToLastError
+
+    if (Test-ErrorOccurred -ReferenceToEarlierError $refLastKnownError -ReferenceToLaterError $refNewestCurrentError) {
+        # Error occurred
+        if ($CurrentAttemptNumber -lt $MaxAttempts) {
+            if ($boolOutputErrorOnFunctionRetry) {
+                Write-Error ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, ($args[1]))) + " seconds, then retrying...")
+            } elseif ($boolOutputWarningOnFunctionRetry) {
+                Write-Warning ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, ($args[1]))) + " seconds, then retrying...")
+            } elseif ($boolOutputVerboseOnFunctionRetry) {
+                Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, ($args[1]))) + " seconds, then retrying...")
+            } elseif ($boolOutputDebugOnFunctionRetry) {
+                Write-Debug ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, ($args[1]))) + " seconds, then retrying...")
+            }
+            Start-Sleep -Seconds ([math]::Pow(2, $CurrentAttemptNumber))
+
+            ################### REPLACE THIS CALL WITH A RECURSIVE CALL TO THIS SAME FUNCTION; PAY ATTENTION TO THE PARAMETERS ###################
+            $objResultIndicator = Get-AzureOpenAIGPTEmbeddingsRobust -ReferenceToArrayOfEmbeddings $refOutput -CurrentAttemptNumber ($CurrentAttemptNumber + 1) -MaxAttempts $MaxAttempts -ReferenceToAPIKey $strFilePath -MaxTokens $arrCharDriveLetters -Temperature $boolUsePSDrive -ReferenceToTextToEmbed $boolRefreshPSDrive -Parameter8 $strSecondaryPath -Parameter9 $boolQuitOnError -ReferenceToArrayOfEmbeddings $strServerName
+            return $objResultIndicator
+        } else {
+            # Number of attempts exceeded maximum
+            if ($boolOutputErrorOnFunctionMaximumAttemptsExceeded) {
+                if ($MaxAttempts -ge 2) {
+                    Write-Error ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
+                } else {
+                    Write-Error ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
+                }
+            } elseif ($boolOutputWarningOnFunctionMaximumAttemptsExceeded) {
+                if ($MaxAttempts -ge 2) {
+                    Write-Warning ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
+                } else {
+                    Write-Warning ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
+                }
+            } elseif ($boolOutputVerboseOnFunctionMaximumAttemptsExceeded) {
+                if ($MaxAttempts -ge 2) {
+                    Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
+                } else {
+                    Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
+                }
+            } elseif ($boolOutputDebugOnFunctionMaximumAttemptsExceeded) {
+                if ($MaxAttempts -ge 2) {
+                    Write-Debug ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
+                } else {
+                    Write-Debug ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
+                }
+            }
+
+            ################### PLACE ANY RELIABLE CODE HERE THAT NEEDS TO RUN AFTER THE WORK IN THIS FUNCTION WAS *NOT* SUCCESSFULLY EXECUTED ###################
+            # <Placeholder>
+
+            # Return failure indicator:
+            ################### UPDATE WITH WHATEVER WE WANT TO RETURN INDICATING A FAILURE ###################
+            return $false
+        }
+    } else {
+        # No error occurred
+        ################### PLACE ANY RELIABLE CODE HERE THAT NEEDS TO RUN AFTER THE WORK IN THIS FUNCTION WAS SUCCESSFULLY EXECUTED BUT BEFORE THE OUTPUT OBJECT IS COPIED ###################
+        # <Placeholder>
+
+        # Return data by reference:
+        $refOutput.Value = $output
+
+        ################### PLACE ANY RELIABLE CODE HERE THAT NEEDS TO RUN AFTER THE WORK IN THIS FUNCTION WAS SUCCESSFULLY EXECUTED AND AFTER THE OUTPUT OBJECT IS COPIED ###################
+        # <Placeholder>
+
+        # Return success indicator:
+        ################### UPDATE WITH WHATEVER WE WANT TO RETURN INDICATING A SUCCESS ###################
+        return $true
+    }
+}
+
+function Get-AzureOpenAIGPTEmbeddingsRobust {
     #region FunctionHeader #########################################################
     # This function retrieves embeddings from the OpenAI API using the a specified GPT
     # model. Embeddings are a numerical representation of text that can be used for
@@ -2820,7 +3414,7 @@ function Get-GPTEmbeddingsRobust {
     # $intMaxTokens = 8191
     # $doubleTemperature = 0.2
     # $strTextToEmbed = 'When I went to this restaurant, I was very disappointed in the server. The service was very slow and I waited over 30 minutes to get my water refilled. The food was also not very good. I will not be returning to this restaurant.'
-    # $boolSuccess = Get-GPTEmbeddingsRobust ([ref]$arrReturnData) 1 8 ([ref]$strAPIKey) ([ref]$strModel) $intMaxTokens $doubleTemperature ([ref]$strTextToEmbed)
+    # $boolSuccess = Get-AzureOpenAIGPTEmbeddingsRobust ([ref]$arrReturnData) 1 8 ([ref]$strAPIKey) ([ref]$strModel) $intMaxTokens $doubleTemperature ([ref]$strTextToEmbed)
     #
     # Version: 1.0.20250403.0
     #endregion FunctionHeader #########################################################
@@ -2989,7 +3583,7 @@ function Get-GPTEmbeddingsRobust {
         temperature = $doubleTemperature
     } | ConvertTo-Json
     # Replace with your Azure OpenAI url for your instnace and the deployment model you created
-    $url = 'https://<REPLACE_WITH_INSTANCEURL>/openai/deployments/<REPLACE_WITH_DEPLOYMENT_NAME>/embeddings?api-version=2024-02-01' 
+    $url = 'https://<REPLACE_WITH_INSTANCEURL>/openai/deployments/<REPLACE_WITH_DEPLOYMENT_NAME>/embeddings?api-version=2024-02-01'
 
     $params = @{
         Uri = $url
@@ -3028,7 +3622,7 @@ function Get-GPTEmbeddingsRobust {
             Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, ($args[1]))) + " seconds, then retrying...")
             Start-Sleep -Seconds ([math]::Pow(2, $intCurrentAttemptNumber))
 
-            $objResultIndicator = Get-GPTEmbeddingsRobust $refOutput ($intCurrentAttemptNumber + 1) $intMaximumAttempts $refStrGPTAPIKey $refStrGPTModel $intGPTMaxTokens $doubleTemperature $refStrTextToEmbed
+            $objResultIndicator = Get-AzureOpenAIGPTEmbeddingsRobust $refOutput ($intCurrentAttemptNumber + 1) $intMaximumAttempts $refStrGPTAPIKey $refStrGPTModel $intGPTMaxTokens $doubleTemperature $refStrTextToEmbed
             return $objResultIndicator
         } else {
             # Number of attempts exceeded maximum
@@ -3063,7 +3657,7 @@ function Get-GPTEmbeddingsRobust {
                 Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, ($args[1]))) + " seconds, then retrying...")
                 Start-Sleep -Seconds ([math]::Pow(2, $intCurrentAttemptNumber))
 
-                $objResultIndicator = Get-GPTEmbeddingsRobust $refOutput ($intCurrentAttemptNumber + 1) $intMaximumAttempts $refStrGPTAPIKey $refStrGPTModel $intGPTMaxTokens $doubleTemperature $refStrTextToEmbed
+                $objResultIndicator = Get-AzureOpenAIGPTEmbeddingsRobust $refOutput ($intCurrentAttemptNumber + 1) $intMaximumAttempts $refStrGPTAPIKey $refStrGPTModel $intGPTMaxTokens $doubleTemperature $refStrTextToEmbed
                 return $objResultIndicator
             } else {
                 # Number of attempts exceeded maximum
@@ -3171,7 +3765,7 @@ function Get-GPTEmbeddingsGen3Large {
 
     $strModel = 'text-embedding-3-large'
     $intMaxTokens = 8191
-    $boolSuccess = Get-GPTEmbeddingsRobust $ReferenceToOutputArray 1 $NumberOfAttempts $ReferenceToOpenAIAPIKey ([ref]$strModel) $intMaxTokens $Temperature $ReferenceToTextToEmbed
+    $boolSuccess = Get-AzureOpenAIGPTEmbeddingsRobust $ReferenceToOutputArray 1 $NumberOfAttempts $ReferenceToOpenAIAPIKey ([ref]$strModel) $intMaxTokens $Temperature $ReferenceToTextToEmbed
 
     return $boolSuccess
 }
