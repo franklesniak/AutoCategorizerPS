@@ -63,20 +63,20 @@ script defaults to version 2024-06-01. The latest GA API version can be viewed h
 https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation?source=recommendations#latest-ga-api-release
 
 .PARAMETER EntraIdTenantId
-Specifies the tenant ID to use when authenticating to the Entra ID. The default
-tenant ID is the one used in Frank and Danny's demo.
+Specifies the tenant ID to use when authenticating to Entra ID to access the Azure Key
+Vault. The default tenant ID is the one used in Frank and Danny's demo.
 
 .PARAMETER AzureSubscriptionId
-Specifies the subscription ID to use when authenticating to Azure. The default
-subscription ID is the one used in Frank and Danny's demo.
+Specifies the subscription ID that holds the Azure Key Vault. The default subscription
+ID is the one used in Frank and Danny's demo.
 
 .PARAMETER AzureKeyVaultName
-Specifies the name of the Azure Key Vault to use when authenticating to Azure. The
-default Key Vault name is the one used in Frank and Danny's demo.
+Specifies the name of the Azure Key Vault that holds the API key (secret). The default
+Key Vault name is the one used in Frank and Danny's demo.
 
 .PARAMETER SecretName
 Specifies the name of the secret in the Azure Key Vault. The secret must contain the
-OpenAI API key.
+Azure OpenAI API key.
 
 .PARAMETER Temperature
 Specifies the sampling "temperature" for the GPT model. The temperature is a value
