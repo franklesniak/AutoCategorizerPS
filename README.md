@@ -168,12 +168,12 @@ Example usage:
 & '.\Invoke-KMeansClustering.ps1' -InputCSVPath .\ConvertedSurveyExport-WithEmbeddings.csv -DataFieldNameContainingEmbeddings 'Embeddings' -NumberOfClusters 10 -OutputCSVPath .\ConvertedSurveyExport-ClusterMetadata.csv
 ```
 
-### Get-TopicForEachCluster.ps1
+### Get-TopicForEachClusterUsingOpenAI.ps1
 
 Finally, now that we have similar data clustered together, we can use the "most representative" item(s) from each cluster to determine the topic/category/main theme of each cluster.
 
 Example usage:
 
 ```powershell
-& '.\Get-TopicForEachCluster.ps1' -ClusterMetadataInputCSVPath .\ConvertedSurveyExport-ClusterMetadata.csv -UnstructuredTextDataInputCSVPath .\ConvertedSurveyExport-WithEmbeddings.csv -UnstructuredTextDataFieldNameContainingTextData 'AdditionalContext_Scrubbed' -OutputCSVPath .\ConvertedSurveyExport-ClusterMetadata-WithTopics.csv -EntraIdTenantId '00bdb152-4d83-4056-9dce-a1a9f0210908' -AzureSubscriptionId 'a59e5b39-14b7-40dc-8052-52c7baca6f81' -AzureKeyVaultName 'PowerShellSecrets' -SecretName 'OpenAIAPIKey'
+& '.\Get-TopicForEachClusterUsingOpenAI.ps1' -ClusterMetadataInputCSVPath .\ConvertedSurveyExport-ClusterMetadata.csv -UnstructuredTextDataInputCSVPath .\ConvertedSurveyExport-WithEmbeddings.csv -UnstructuredTextDataFieldNameContainingTextData 'AdditionalContext_Scrubbed' -OutputCSVPath .\ConvertedSurveyExport-ClusterMetadata-WithTopics.csv -EntraIdTenantId '00bdb152-4d83-4056-9dce-a1a9f0210908' -AzureSubscriptionId 'a59e5b39-14b7-40dc-8052-52c7baca6f81' -AzureKeyVaultName 'PowerShellSecrets' -SecretName 'OpenAIAPIKey'
 ```

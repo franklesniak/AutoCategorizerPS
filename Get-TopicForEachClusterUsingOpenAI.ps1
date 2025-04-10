@@ -1,5 +1,5 @@
-# Get-TopicForEachCluster.ps1
-# Version: 1.0.20240428.0
+# Get-TopicForEachClusterUsingOpenAI.ps1
+# Version: 1.0.20250410.0
 
 <#
 .SYNOPSIS
@@ -164,7 +164,7 @@ None
 #>
 
 #region License ################################################################
-# Copyright (c) 2024 Frank Lesniak and Daniel Stutz
+# Copyright (c) 2025 Frank Lesniak and Daniel Stutz
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of
 # this software and associated documentation files (the "Software"), to deal in the
