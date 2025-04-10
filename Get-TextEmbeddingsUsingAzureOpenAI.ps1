@@ -59,7 +59,7 @@ model to be used. The deployment name is case-sensitive.
 .PARAMETER AzureOpenAIAPIVersion
 Specifies the API version to use when connecting to the Azure OpenAI service. The
 API version is supplied in YYYY-MM-DD format, and, if this parameter is omitted, the
-script defaults to version 2024-06-01. The latest GA API version can be viewed here:
+script defaults to version 2024-10-21. The latest GA API version can be viewed here:
 https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation?source=recommendations#latest-ga-api-release
 
 .PARAMETER EntraIdTenantId
