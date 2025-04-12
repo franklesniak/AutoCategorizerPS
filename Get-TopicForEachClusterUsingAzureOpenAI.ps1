@@ -4078,7 +4078,7 @@ if ($versionPS -ge ([version]'6.0')) {
 }
 
 #region Collect Stats/Objects Needed for Writing Progress ##########################
-$intProgressReportingFrequency = 5
+$intProgressReportingFrequency = 3
 $intTotalItems = $arrClusterMetadataCSV.Count
 $strProgressActivity = 'Getting the topic for each cluster'
 $strProgressStatus = 'Processing'
