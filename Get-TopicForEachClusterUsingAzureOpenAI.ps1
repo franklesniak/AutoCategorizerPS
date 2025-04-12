@@ -1,5 +1,5 @@
-# Get-TopicForEachCluster.ps1
-# Version: 1.0.20240407.0
+# Get-TopicForEachClusterUsingAzureOpenAI.ps1
+# Version: 1.1.20250412.0
 
 <#
 .SYNOPSIS
@@ -128,27 +128,47 @@ If supplied, the script will skip the check for PowerShell module updates. This 
 speed up the script's execution time, but it is not recommended unless the user knows
 that the computer's modules are already up-to-date.
 
+.PARAMETER ReferenceToAzureOpenAIEndpoint
+This parameter is required; it is a reference to a string containing the endpoint
+for the Azure OpenAI service. To view the endpoint, for an Azure OpenAI resource,
+go to the Azure portal and select the resource. Then, navigate to "Keys and
+Endpoint" in the left-hand menu. The endpoint will be in the format
+'https://<resource-name>.openai.azure.com/' where <resource-name> is the name of
+the Azure OpenAI resource. Supply the complete endpoint URL, including the
+https:// prefix, the .openai.azure.com suffix, and the trailing slash.
+
+.PARAMETER ReferenceToAzureOpenAIDeploymentName
+This parameter is required; it is a reference to a string that specifies the
+deployment name in the Azure OpenAI service instance that represents the
+chat response model to be used. The model deployments can be viewed in Azure AI
+Foundry. To view the model deployments, go to
+https://ai.azure.com/resource/deployments, then verify that the correct Azure
+OpenAI instance is selected at the top. The model deployments are listed in the
+middle pane. For this parameter, supply the name of the deployment that
+represents the chat response model to be used. The deployment name is case-
+sensitive.
+
+.PARAMETER AzureOpenAIAPIVersion
+Specifies the API version to use when connecting to the Azure OpenAI service. The
+API version is supplied in YYYY-MM-DD format, and, if this parameter is omitted, the
+script defaults to version 2024-12-01-preview. The latest GA API version can be viewed here:
+https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation?source=recommendations#latest-ga-api-release
+
 .PARAMETER EntraIdTenantId
-Specifies the tenant ID to use when authenticating to the Entra ID. The default
-tenant ID is the one used in Frank and Danny's demo.
+Specifies the tenant ID to use when authenticating to Entra ID to access the Azure Key
+Vault. The default tenant ID is the one used in Frank and Danny's demo.
 
 .PARAMETER AzureSubscriptionId
-Specifies the subscription ID to use when authenticating to Azure. The default
-subscription ID is the one used in Frank and Danny's demo.
+Specifies the subscription ID that holds the Azure Key Vault. The default subscription
+ID is the one used in Frank and Danny's demo.
 
 .PARAMETER AzureKeyVaultName
-Specifies the name of the Azure Key Vault to use when authenticating to Azure. The
-default Key Vault name is the one used in Frank and Danny's demo.
+Specifies the name of the Azure Key Vault that holds the API key (secret). The default
+Key Vault name is the one used in Frank and Danny's demo.
 
 .PARAMETER SecretName
 Specifies the name of the secret in the Azure Key Vault. The secret must contain the
-OpenAI API key.
-
-.PARAMETER Temperature
-Specifies the sampling "temperature" for the GPT model. The temperature is a value
-between 0 and 1 that controls the randomness of the generated embeddings. A lower
-temperature will result in more deterministic embeddings, while a higher temperature
-will result in more random embeddings. The default temperature is 0.2.
+Azure OpenAI API key.
 
 .EXAMPLE
 PS C:\> .\Get-TopicForEachCluster.ps1 -ClusterMetadataInputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata.csv' -UnstructuredTextDataInputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - With Embeddings.csv' -UnstructuredTextDataFieldNameContainingTextData 'Comment' -OutputCSVPath 'C:\Users\jdoe\Documents\West Monroe Pulse Survey Comments Aug 2021 - Cluster Metadata with Topics.csv'
@@ -164,7 +184,7 @@ None
 #>
 
 #region License ################################################################
-# Copyright (c) 2024 Frank Lesniak and Daniel Stutz
+# Copyright (c) 2025 Frank Lesniak and Daniel Stutz
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of
 # this software and associated documentation files (the "Software"), to deal in the
@@ -210,11 +230,13 @@ param (
     [Parameter(Mandatory = $false)][string]$SeparatorForItemsInCluster = ' /// ',
     [Parameter(Mandatory = $true)][string]$OutputCSVPath,
     [Parameter(Mandatory = $false)][switch]$DoNotCheckForModuleUpdates,
+    [Parameter(Mandatory = $true)][string]$AzureOpenAIEndpoint,
+    [Parameter(Mandatory = $true)][string]$AzureOpenAIDeploymentName,
+    [Parameter(Mandatory = $false)][string]$AzureOpenAIAPIVersion = '2024-12-01-preview',
     [Parameter(Mandatory = $false)][string]$EntraIdTenantId = '4cb2f1c9-c771-4ce5-a581-9376e59ea807',
     [Parameter(Mandatory = $false)][string]$AzureSubscriptionId = 'b337b2c0-fe35-4e3c-9434-7b7a15da61b7',
     [Parameter(Mandatory = $false)][string]$AzureKeyVaultName = 'powershell-conf-2024',
-    [Parameter(Mandatory = $false)][string]$SecretName = 'powershell-saturday-openai-key',
-    [Parameter(Mandatory = $false)][double]$Temperature = 0.2
+    [Parameter(Mandatory = $false)][string]$SecretName = 'powershell-saturday-openai-key'
 )
 
 function Get-PSVersion {
@@ -1006,40 +1028,82 @@ function Split-StringOnLiteralString {
     }
 }
 
-function Get-SingleChatGPTResponseRobust {
-    #region FunctionHeader #########################################################
-    # This function retrieves a response from the ChatGPT API. If the API call fails,
-    # the function will retry the call up to a specified number of times.
+function Get-AzureOpenAISingleChatResponseRobust {
+    # .SYNOPSIS
+    # This function submits text (a prompt) to Azure OpenAI and returns the chat
+    # response. Designed for o1 and newer models.
     #
-    # Seven positional arguments are required:
+    # .DESCRIPTION
+    # This function submits text (a prompt) to Azure OpenAI and returns the chat
+    # response. It is designed to be robust, with retry logic for transient errors. The
+    # function will retry the request up to a specified maximum number of attempts if
+    # it encounters certain error codes. The function also includes parameters to
+    # customize the Azure OpenAI endpoint, deployment name, API key, and other
+    # settings. The function is designed to be used in Windows PowerShell 3 and later
+    # versions.
     #
-    # The first argument is a reference to a string that will be used to store output.
+    # .PARAMETER ReferenceToResponse
+    # This parameter is required; it is a reference to a string that will be used to
+    # store the chat response retrieved from the Azure OpenAI service.
     #
-    # The second argument is an integer indicating the current attempt number. When
-    # calling this function for the first time, it should be 1
+    # .PARAMETER CurrentAttemptNumber
+    # This parameter is required; it is an integer indicating the current attempt
+    # number. When calling this function for the first time, it should be 1.
     #
-    # The third argument is an integer representing the maximum number of attempts that
-    # the function will observe before giving up
+    # .PARAMETER MaxAttempts
+    # This parameter is required; it is an integer representing the maximum number
+    # of attempts that the function will observe before giving up.
     #
-    # The fourth argument is a reference to a string containing a valid OpenAI API key
-    # that the function will use to retrieve embeddings
+    # .PARAMETER ReferenceToAzureOpenAIEndpoint
+    # This parameter is required; it is a reference to a string containing the endpoint
+    # for the Azure OpenAI service. To view the endpoint, for an Azure OpenAI resource,
+    # go to the Azure portal and select the resource. Then, navigate to "Keys and
+    # Endpoint" in the left-hand menu. The endpoint will be in the format
+    # 'https://<resource-name>.openai.azure.com/' where <resource-name> is the name of
+    # the Azure OpenAI resource. Supply the complete endpoint URL, including the
+    # https:// prefix, the .openai.azure.com suffix, and the trailing slash.
     #
-    # The fifth argument is a reference to a string containing the name of the GPT
-    # model that the function will use to generate the response
+    # .PARAMETER ReferenceToAzureOpenAIDeploymentName
+    # This parameter is required; it is a reference to a string that specifies the
+    # deployment name in the Azure OpenAI service instance that represents the
+    # chat response model to be used. The model deployments can be viewed in Azure AI
+    # Foundry. To view the model deployments, go to
+    # https://ai.azure.com/resource/deployments, then verify that the correct Azure
+    # OpenAI instance is selected at the top. The model deployments are listed in the
+    # middle pane. For this parameter, supply the name of the deployment that
+    # represents the chat response model to be used. The deployment name is case-
+    # sensitive.
     #
-    # The sixth argument is a double representing the temperature to use when
-    # generating the response. A value of 0 is the most deterministic, while a value
-    # greater than 0 introduces randomness. The maximum value is 1.0
+    # .PARAMETER ReferenceToAPIKey
+    # This parameter is required; is a reference to a string containing a valid Azure
+    # OpenAI API key that the function will use to submit the text (prompt) and receive
+    # the chat response.
     #
-    # The seventh argument is a reference to a string containing the text that the
-    # function will send to ChatGPT
+    # .PARAMETER ReferenceToPrompt
+    # This parameter is required; it is a reference to a string containing the text
+    # that the function will prompt to (ask) the chat API.
     #
-    # The function returns $true if the process completed successfully; $false
-    # otherwise
+    # .PARAMETER ReferenceToAzureOpenAIAPIVersion
+    # This parameter is optional; if supplied, it is a memory reference (pointer) to a
+    # string that specifies the API version to use when connecting to the Azure OpenAI
+    # service. The API version is supplied in YYYY-MM-DD format, and, if this parameter
+    # is omitted, the script defaults to version 2024-12-01-preview. The latest GA API
+    # version can be viewed here:
+    # https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation?source=recommendations#latest-ga-api-release
     #
-    # Example usage:
-    # $strGPTAPIKey = 'YOURAPIKEYHERE'
+    # .PARAMETER PSVersion
+    # This parameter is optional; if supplied, it is a System.Version object that
+    # contains the version of PowerShell that is running. If this parameter is
+    # omitted, the function will determine the version of PowerShell that is
+    # currently running. This parameter is used to determine whether the script is
+    # running on a supported version of PowerShell.
+    #
+    # .EXAMPLE
     # $strTopic = ''
+    # $strAzureOpenAIEndpoint = 'https://flesniak-dstutz.openai.azure.com/'
+    # $strAzureOpenAIDeploymentName = 'private-chat'
+    # $strAzureOpenAIAPIVersion = '2024-12-01-preview'
+    # $strAPIKey = 'abcdefghijklmnopqrstuvwxyzabcdef'
     # $strPrompt = 'In as few words as possible (certainly no more than 1-3 words), '
     # $strPrompt += 'describe the topic, main idea, or theme of the following four '
     # $strPrompt += 'texts, treated as a set. Each text is separated by three forward '
@@ -1050,164 +1114,436 @@ function Get-SingleChatGPTResponseRobust {
     # $arrTexts += 'Someone stole my iPad from the exercise room and the building manager is not doing anything about it.'
     # $arrTexts += 'Can we work out during our lunch break? I know some people do it, but I''m not sure it''s permitted. Can leadership make an announcement about this?'
     # $strPrompt += $arrTexts -join '///'
-    # $boolSuccess = Get-SingleChatGPTResponseRobust ([ref]$strTopic) 1 3 ([ref]$strGPTAPIKey) ([ref]'gpt-4-turbo-preview') 0.2 ([ref]$strPrompt)
+    # $boolSuccess = Get-AzureOpenAISingleChatResponseRobust -ReferenceToResponse ([ref]$strTopic) -CurrentAttemptNumber 1 -MaxAttempts 8 -ReferenceToAzureOpenAIEndpoint ([ref]$strAzureOpenAIEndpoint) -ReferenceToAzureOpenAIDeploymentName ([ref]$strAzureOpenAIDeploymentName) -ReferenceToAPIKey ([ref]$strAPIKey) -ReferenceToAzureOpenAIAPIVersion ([ref]$strAzureOpenAIAPIVersion) -ReferenceToPrompt ([ref]$strPrompt)
     #
-    # Version: 1.0.20240327.0
-    #endregion FunctionHeader #########################################################
+    # .INPUTS
+    # None. You can't pipe objects to Get-AzureOpenAISingleChatResponseRobust.
+    #
+    # .OUTPUTS
+    # System.Boolean. Get-AzureOpenAISingleChatResponseRobust returns a boolean value
+    # indiciating whether the process completed successfully. $true means the
+    # process completed successfully; $false means there was an error.
+    #
+    # .NOTES
+    # Version: 2.0.20250410.0
 
-    #region License ################################################################
-    # Copyright (c) 2024 Frank Lesniak and Daniel Stutz
+    #region License ############################################################
+    # Copyright (c) 2025 Frank Lesniak and Daniel Stutz
     #
-    # Permission is hereby granted, free of charge, to any person obtaining a copy of
-    # this software and associated documentation files (the "Software"), to deal in the
-    # Software without restriction, including without limitation the rights to use,
-    # copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
-    # Software, and to permit persons to whom the Software is furnished to do so,
-    # subject to the following conditions:
+    # Permission is hereby granted, free of charge, to any person obtaining a copy
+    # of this software and associated documentation files (the "Software"), to deal
+    # in the Software without restriction, including without limitation the rights
+    # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    # copies of the Software, and to permit persons to whom the Software is
+    # furnished to do so, subject to the following conditions:
     #
-    # The above copyright notice and this permission notice shall be included in all
-    # copies or substantial portions of the Software.
+    # The above copyright notice and this permission notice shall be included in
+    # all copies or substantial portions of the Software.
     #
     # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-    # FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-    # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
-    # AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-    # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-    #endregion License ################################################################
+    # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    # SOFTWARE.
+    #endregion License ############################################################
 
-    #region FunctionsToSupportErrorHandling ########################################
+    param (
+        [ref]$ReferenceToResponse = ([ref]$null),
+        [int]$CurrentAttemptNumber = 1,
+        [int]$MaxAttempts = 4,
+        [ref]$ReferenceToAzureOpenAIEndpoint = ([ref]$null),
+        [ref]$ReferenceToAzureOpenAIDeploymentName = ([ref]$null),
+        [ref]$ReferenceToAPIKey = ([ref]$null),
+        [ref]$ReferenceToPrompt = ([ref]$null),
+        [ref]$ReferenceToAzureOpenAIAPIVersion = ([ref]'2024-12-01-preview'),
+        [version]$PSVersion = ([version]'0.0')
+    )
+
+    #region FunctionsToSupportErrorHandling ####################################
     function Get-ReferenceToLastError {
-        #region FunctionHeader #####################################################
-        # Function returns $null if no errors on on the $error stack;
-        # Otherwise, function returns a reference (memory pointer) to the last error
-        # that occurred.
+        # .SYNOPSIS
+        # Gets a reference (memory pointer) to the last error that
+        # occurred.
         #
-        # Version: 1.0.20240127.0
-        #endregion FunctionHeader #####################################################
+        # .DESCRIPTION
+        # Returns a reference (memory pointer) to $null ([ref]$null) if no
+        # errors on on the $error stack; otherwise, returns a reference to
+        # the last error that occurred.
+        #
+        # .EXAMPLE
+        # # Intentionally empty trap statement to prevent terminating
+        # # errors from halting processing
+        # trap { }
+        #
+        # # Retrieve the newest error on the stack prior to doing work:
+        # $refLastKnownError = Get-ReferenceToLastError
+        #
+        # # Store current error preference; we will restore it after we do
+        # # some work:
+        # $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+        #
+        # # Set ErrorActionPreference to SilentlyContinue; this will suppress
+        # # error output. Terminating errors will not output anything, kick
+        # # to the empty trap statement and then continue on. Likewise, non-
+        # # terminating errors will also not output anything, but they do not
+        # # kick to the trap statement; they simply continue on.
+        # $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+        #
+        # # Do something that might trigger an error
+        # Get-Item -Path 'C:\MayNotExist.txt'
+        #
+        # # Restore the former error preference
+        # $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
+        #
+        # # Retrieve the newest error on the error stack
+        # $refNewestCurrentError = Get-ReferenceToLastError
+        #
+        # $boolErrorOccurred = $false
+        # if (($null -ne $refLastKnownError.Value) -and ($null -ne $refNewestCurrentError.Value)) {
+        #     # Both not $null
+        #     if (($refLastKnownError.Value) -ne ($refNewestCurrentError.Value)) {
+        #         $boolErrorOccurred = $true
+        #     }
+        # } else {
+        #     # One is $null, or both are $null
+        #     # NOTE: $refLastKnownError could be non-null, while
+        #     # $refNewestCurrentError could be null if $error was cleared;
+        #     # this does not indicate an error.
+        #     #
+        #     # So:
+        #     # If both are null, no error.
+        #     # If $refLastKnownError is null and $refNewestCurrentError is
+        #     # non-null, error.
+        #     # If $refLastKnownError is non-null and $refNewestCurrentError
+        #     # is null, no error.
+        #     #
+        #     if (($null -eq $refLastKnownError.Value) -and ($null -ne $refNewestCurrentError.Value)) {
+        #         $boolErrorOccurred = $true
+        #     }
+        # }
+        #
+        # .INPUTS
+        # None. You can't pipe objects to Get-ReferenceToLastError.
+        #
+        # .OUTPUTS
+        # System.Management.Automation.PSReference ([ref]).
+        # Get-ReferenceToLastError returns a reference (memory pointer) to
+        # the last error that occurred. It returns a reference to $null
+        # ([ref]$null) if there are no errors on on the $error stack.
+        #
+        # .NOTES
+        # Version: 2.0.20250215.0
 
-        #region License ############################################################
-        # Copyright (c) 2024 Frank Lesniak
+        #region License ################################################
+        # Copyright (c) 2025 Frank Lesniak
         #
-        # Permission is hereby granted, free of charge, to any person obtaining a copy
-        # of this software and associated documentation files (the "Software"), to deal
-        # in the Software without restriction, including without limitation the rights
-        # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        # copies of the Software, and to permit persons to whom the Software is
-        # furnished to do so, subject to the following conditions:
+        # Permission is hereby granted, free of charge, to any person
+        # obtaining a copy of this software and associated documentation
+        # files (the "Software"), to deal in the Software without
+        # restriction, including without limitation the rights to use,
+        # copy, modify, merge, publish, distribute, sublicense, and/or sell
+        # copies of the Software, and to permit persons to whom the
+        # Software is furnished to do so, subject to the following
+        # conditions:
         #
-        # The above copyright notice and this permission notice shall be included in
-        # all copies or substantial portions of the Software.
+        # The above copyright notice and this permission notice shall be
+        # included in all copies or substantial portions of the Software.
         #
-        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-        # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-        # SOFTWARE.
-        #endregion License ############################################################
+        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+        # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+        # OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+        # NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+        # HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+        # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+        # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+        # OTHER DEALINGS IN THE SOFTWARE.
+        #endregion License ################################################
 
-        #region DownloadLocationNotice #############################################
-        # The most up-to-date version of this script can be found on the author's
-        # GitHub repository at https://github.com/franklesniak/PowerShell_Resources
-        #endregion DownloadLocationNotice #############################################
-
-        if ($error.Count -gt 0) {
-            [ref]($error[0])
+        if ($Error.Count -gt 0) {
+            return ([ref]($Error[0]))
         } else {
-            $null
+            return ([ref]$null)
         }
     }
 
     function Test-ErrorOccurred {
-        #region FunctionHeader #####################################################
-        # Function accepts two positional arguments:
+        # .SYNOPSIS
+        # Checks to see if an error occurred during a time period, i.e.,
+        # during the execution of a command.
         #
-        # The first argument is a reference (memory pointer) to the last error that had
-        # occurred prior to calling the command in question - that is, the command that
-        # we want to test to see if an error occurred.
+        # .DESCRIPTION
+        # Using two references (memory pointers) to errors, this function
+        # checks to see if an error occurred based on differences between
+        # the two errors.
         #
-        # The second argument is a reference to the last error that had occurred as-of
-        # the completion of the command in question.
+        # To use this function, you must first retrieve a reference to the
+        # last error that occurred prior to the command you are about to
+        # run. Then, run the command. After the command completes, retrieve
+        # a reference to the last error that occurred. Pass these two
+        # references to this function to determine if an error occurred.
         #
-        # Function returns $true if it appears that an error occurred; $false otherwise
+        # .PARAMETER ReferenceToEarlierError
+        # This parameter is required; it is a reference (memory pointer) to
+        # a System.Management.Automation.ErrorRecord that represents the
+        # newest error on the stack earlier in time, i.e., prior to running
+        # the command for which you wish to determine whether an error
+        # occurred.
         #
-        # Version: 1.0.20240127.0
-        #endregion FunctionHeader #####################################################
+        # If no error was on the stack at this time,
+        # ReferenceToEarlierError must be a reference to $null
+        # ([ref]$null).
+        #
+        # .PARAMETER ReferenceToLaterError
+        # This parameter is required; it is a reference (memory pointer) to
+        # a System.Management.Automation.ErrorRecord that represents the
+        # newest error on the stack later in time, i.e., after to running
+        # the command for which you wish to determine whether an error
+        # occurred.
+        #
+        # If no error was on the stack at this time, ReferenceToLaterError
+        # must be a reference to $null ([ref]$null).
+        #
+        # .EXAMPLE
+        # # Intentionally empty trap statement to prevent terminating
+        # # errors from halting processing
+        # trap { }
+        #
+        # # Retrieve the newest error on the stack prior to doing work
+        # if ($Error.Count -gt 0) {
+        #     $refLastKnownError = ([ref]($Error[0]))
+        # } else {
+        #     $refLastKnownError = ([ref]$null)
+        # }
+        #
+        # # Store current error preference; we will restore it after we do
+        # # some work:
+        # $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+        #
+        # # Set ErrorActionPreference to SilentlyContinue; this will
+        # # suppress error output. Terminating errors will not output
+        # # anything, kick to the empty trap statement and then continue
+        # # on. Likewise, non- terminating errors will also not output
+        # # anything, but they do not kick to the trap statement; they
+        # # simply continue on.
+        # $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+        #
+        # # Do something that might trigger an error
+        # Get-Item -Path 'C:\MayNotExist.txt'
+        #
+        # # Restore the former error preference
+        # $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
+        #
+        # # Retrieve the newest error on the error stack
+        # if ($Error.Count -gt 0) {
+        #     $refNewestCurrentError = ([ref]($Error[0]))
+        # } else {
+        #     $refNewestCurrentError = ([ref]$null)
+        # }
+        #
+        # if (Test-ErrorOccurred -ReferenceToEarlierError $refLastKnownError -ReferenceToLaterError $refNewestCurrentError) {
+        #     # Error occurred
+        # } else {
+        #     # No error occurred
+        # }
+        #
+        # .INPUTS
+        # None. You can't pipe objects to Test-ErrorOccurred.
+        #
+        # .OUTPUTS
+        # System.Boolean. Test-ErrorOccurred returns a boolean value
+        # indicating whether an error occurred during the time period in
+        # question. $true indicates an error occurred; $false indicates no
+        # error occurred.
+        #
+        # .NOTES
+        # This function also supports the use of positional parameters
+        # instead of named parameters. If positional parameters are used
+        # instead of named parameters, then two positional parameters are
+        # required:
+        #
+        # The first positional parameter is a reference (memory pointer) to
+        # a System.Management.Automation.ErrorRecord that represents the
+        # newest error on the stack earlier in time, i.e., prior to running
+        # the command for which you wish to determine whether an error
+        # occurred. If no error was on the stack at this time, the first
+        # positional parameter must be a reference to $null ([ref]$null).
+        #
+        # The second positional parameter is a reference (memory pointer)
+        # to a System.Management.Automation.ErrorRecord that represents the
+        # newest error on the stack later in time, i.e., after to running
+        # the command for which you wish to determine whether an error
+        # occurred. If no error was on the stack at this time,
+        # ReferenceToLaterError must be a reference to $null ([ref]$null).
+        #
+        # Version: 2.0.20250215.0
 
-        #region License ############################################################
-        # Copyright (c) 2024 Frank Lesniak
+        #region License ################################################
+        # Copyright (c) 2025 Frank Lesniak
         #
-        # Permission is hereby granted, free of charge, to any person obtaining a copy
-        # of this software and associated documentation files (the "Software"), to deal
-        # in the Software without restriction, including without limitation the rights
-        # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        # copies of the Software, and to permit persons to whom the Software is
-        # furnished to do so, subject to the following conditions:
+        # Permission is hereby granted, free of charge, to any person
+        # obtaining a copy of this software and associated documentation
+        # files (the "Software"), to deal in the Software without
+        # restriction, including without limitation the rights to use,
+        # copy, modify, merge, publish, distribute, sublicense, and/or sell
+        # copies of the Software, and to permit persons to whom the
+        # Software is furnished to do so, subject to the following
+        # conditions:
         #
-        # The above copyright notice and this permission notice shall be included in
-        # all copies or substantial portions of the Software.
+        # The above copyright notice and this permission notice shall be
+        # included in all copies or substantial portions of the Software.
         #
-        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-        # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-        # SOFTWARE.
-        #endregion License ############################################################
+        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+        # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+        # OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+        # NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+        # HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+        # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+        # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+        # OTHER DEALINGS IN THE SOFTWARE.
+        #endregion License ################################################
+        param (
+            [ref]$ReferenceToEarlierError = ([ref]$null),
+            [ref]$ReferenceToLaterError = ([ref]$null)
+        )
 
-        #region DownloadLocationNotice #############################################
-        # The most up-to-date version of this script can be found on the author's
-        # GitHub repository at https://github.com/franklesniak/PowerShell_Resources
-        #endregion DownloadLocationNotice #############################################
-
-        # TO-DO: Validate input
+        # TODO: Validate input
 
         $boolErrorOccurred = $false
-        if (($null -ne ($args[0])) -and ($null -ne ($args[1]))) {
+        if (($null -ne $ReferenceToEarlierError.Value) -and ($null -ne $ReferenceToLaterError.Value)) {
             # Both not $null
-            if ((($args[0]).Value) -ne (($args[1]).Value)) {
+            if (($ReferenceToEarlierError.Value) -ne ($ReferenceToLaterError.Value)) {
                 $boolErrorOccurred = $true
             }
         } else {
             # One is $null, or both are $null
-            # NOTE: ($args[0]) could be non-null, while ($args[1])
-            # could be null if $error was cleared; this does not indicate an error.
+            # NOTE: $ReferenceToEarlierError could be non-null, while
+            # $ReferenceToLaterError could be null if $error was cleared;
+            # this does not indicate an error.
             # So:
-            # If both are null, no error
-            # If ($args[0]) is null and ($args[1]) is non-null, error
-            # If ($args[0]) is non-null and ($args[1]) is null, no error
-            if (($null -eq ($args[0])) -and ($null -ne ($args[1]))) {
-                $boolErrorOccurred
+            # - If both are null, no error.
+            # - If $ReferenceToEarlierError is null and
+            #   $ReferenceToLaterError is non-null, error.
+            # - If $ReferenceToEarlierError is non-null and
+            #   $ReferenceToLaterError is null, no error.
+            if (($null -eq $ReferenceToEarlierError.Value) -and ($null -ne $ReferenceToLaterError.Value)) {
+                $boolErrorOccurred = $true
             }
         }
 
-        $boolErrorOccurred
+        return $boolErrorOccurred
     }
-    #endregion FunctionsToSupportErrorHandling ########################################
+    #endregion FunctionsToSupportErrorHandling ####################################
+
+    function Get-PSVersion {
+        # .SYNOPSIS
+        # Returns the version of PowerShell that is running.
+        #
+        # .DESCRIPTION
+        # The function outputs a [version] object representing the version of
+        # PowerShell that is running.
+        #
+        # On versions of PowerShell greater than or equal to version 2.0, this
+        # function returns the equivalent of $PSVersionTable.PSVersion
+        #
+        # PowerShell 1.0 does not have a $PSVersionTable variable, so this
+        # function returns [version]('1.0') on PowerShell 1.0.
+        #
+        # .EXAMPLE
+        # $versionPS = Get-PSVersion
+        # # $versionPS now contains the version of PowerShell that is running.
+        # # On versions of PowerShell greater than or equal to version 2.0,
+        # # this function returns the equivalent of $PSVersionTable.PSVersion.
+        #
+        # .INPUTS
+        # None. You can't pipe objects to Get-PSVersion.
+        #
+        # .OUTPUTS
+        # System.Version. Get-PSVersion returns a [version] value indiciating
+        # the version of PowerShell that is running.
+        #
+        # .NOTES
+        # Version: 1.0.20250106.0
+
+        #region License ####################################################
+        # Copyright (c) 2025 Frank Lesniak
+        #
+        # Permission is hereby granted, free of charge, to any person obtaining
+        # a copy of this software and associated documentation files (the
+        # "Software"), to deal in the Software without restriction, including
+        # without limitation the rights to use, copy, modify, merge, publish,
+        # distribute, sublicense, and/or sell copies of the Software, and to
+        # permit persons to whom the Software is furnished to do so, subject to
+        # the following conditions:
+        #
+        # The above copyright notice and this permission notice shall be
+        # included in all copies or substantial portions of the Software.
+        #
+        # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+        # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+        # MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+        # NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+        # BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+        # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+        # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        # SOFTWARE.
+        #endregion License ####################################################
+
+        if (Test-Path variable:\PSVersionTable) {
+            return ($PSVersionTable.PSVersion)
+        } else {
+            return ([version]('1.0'))
+        }
+    }
 
     trap {
         # Intentionally left empty to prevent terminating errors from halting
         # processing
     }
 
-    $refOutput = $args[0]
-    $intCurrentAttemptNumber = $args[1]
-    $intMaximumAttempts = $args[2]
-    $refStrGPTAPIKey = $args[3]
-    $refStrGPTModel = $args[4] # 'gpt-4-turbo-preview'
-    $doubleTemperature = $args[5] # 0.2
-    $refStrTextToSend = $args[6]
+    if ([string]::IsNullOrEmpty($ReferenceToAzureOpenAIEndpoint.Value)) {
+        Write-Error 'Get-AzureOpenAISingleChatResponseRobust must be called with the ReferenceToAzureOpenAIEndpoint parameter, which is a memory reference to a string containing the endpoint for the Azure OpenAI service. To view the endpoint, for an Azure OpenAI resource, go to the Azure portal and select the resource. Then, navigate to "Keys and Endpoint" in the left-hand menu. The endpoint will be in the format https://<resource-name>.openai.azure.com/ where <resource-name> is the name of the Azure OpenAI resource. Supply the complete endpoint URL, including the https:// prefix, the .openai.azure.com suffix, and the trailing slash.'
+        return $false
+    }
+    if ($ReferenceToAzureOpenAIEndpoint.Value.Substring($ReferenceToAzureOpenAIEndpoint.Value.Length - 1) -ne '/') {
+        Write-Error 'Get-AzureOpenAISingleChatResponseRobust must be called with the ReferenceToAzureOpenAIEndpoint parameter, which is a memory reference to a string containing the endpoint for the Azure OpenAI service. To view the endpoint, for an Azure OpenAI resource, go to the Azure portal and select the resource. Then, navigate to "Keys and Endpoint" in the left-hand menu. The endpoint will be in the format https://<resource-name>.openai.azure.com/ where <resource-name> is the name of the Azure OpenAI resource. Supply the complete endpoint URL, including the https:// prefix, the .openai.azure.com suffix, and the trailing slash.'
+        return $false
+    }
+    if ([string]::IsNullOrEmpty($ReferenceToAzureOpenAIDeploymentName.Value)) {
+        Write-Error 'Get-AzureOpenAISingleChatResponseRobust must be called with the ReferenceToAzureOpenAIDeploymentName parameter, which is a memory reference to a string that specifies the deployment name in the Azure OpenAI service instance that represents the chat response model to be used. The model deployments can be viewed in Azure AI Foundry. To view the model deployments, go to https://ai.azure.com/resource/deployments, then verify that the correct Azure OpenAI instance is selected at the top. The model deployments are listed in the middle pane. For this parameter, supply the name of the deployment that represents the chat response model to be used. The deployment name is case-sensitive.'
+        return $false
+    }
+    if ([string]::IsNullOrEmpty($ReferenceToAPIKey.Value)) {
+        Write-Error 'Get-AzureOpenAISingleChatResponseRobust must be called with the ReferenceToAPIKey parameter, which is a memory reference (pointer) to a string containing a valid Azure OpenAI API key that the function will use to submit the text (prompt) and receive the chat response.'
+        return $false
+    }
+    if ([string]::IsNullOrEmpty($ReferenceToPrompt.Value)) {
+        Write-Error 'Get-AzureOpenAISingleChatResponseRobust must be called with the ReferenceToPrompt parameter, which is a memory reference to a string containing the text that the function will prompt to (ask) the chat API. The text must be a non-empty string.'
+        return $false
+    }
+    if (-not $ReferenceToResponse.Value.GetType().FullName -eq 'System.String') {
+        Write-Error 'Get-AzureOpenAISingleChatResponseRobust must be called with the ReferenceToResponse parameter, which is a memory reference to a string that will be used to store the chat response retrieved from the Azure OpenAI service.'
+        return $false
+    }
 
-    # TODO: Validate input
-    # TODO: validate we are on PowerShell 3 or later
+    if ($PSVersion -eq ([version]'0.0')) {
+        # If the PSVersion parameter is not supplied, set it to the current version
+        $versionPS = $PSVersionTable.PSVersion
+        $refPSVersion = [ref]$versionPS
+    } else {
+        $refPSVersion = [ref]$PSVersion
+    }
 
-    $strDescriptionOfWhatWeAreDoingInThisFunction = 'retrieving a response from the ChatGPT (OpenAI chat) API'
+    if ($refPSVersion.Value.Major -lt 3) {
+        Write-Error 'Get-AzureOpenAISingleChatResponseRobust requires PowerShell v3.0 or newer. Please upgrade PowerShell, upgrade your operating system, or run this script from another computer.'
+        return $false
+    }
 
-    $headers = [ordered]@{
-        'api-key' = $refStrGPTAPIKey.Value
+    $strDescriptionOfWhatWeAreDoingInThisFunction = 'retrieving a response from the ChatGPT (Azure OpenAI chat completions) API'
+
+    $hashtableAzureOpenAIHeaders = [ordered]@{
+        'api-key' = $ReferenceToAPIKey.Value
     }
 
     $arrMessages = @(
@@ -1217,41 +1553,31 @@ function Get-SingleChatGPTResponseRobust {
         },
         @{
             'role' = 'user'
-            'content' = ($refStrTextToSend.Value)
+            'content' = $ReferenceToPrompt.Value
         }
     )
 
-    $strJSONRequestBody = [ordered]@{
+    $strJSONRequestBody = @{
         messages = $arrMessages
-        max_tokens = 150
-        top_p = 0.5
-        temperature = $doubleTemperature
     } | ConvertTo-Json
-    # Replace with your instance URL, and deployment name
-    $url = 'https://<INSTANCEURL>/openai/deployments/<DeploymentName>/chat/completions?api-version=2024-06-01'
-
-    $params = @{
-        Uri = $url
-        Headers = $headers
-        Method = 'Post'
-        Body = $strJSONRequestBody
-        ContentType = 'application/json'
-    }
+    $strURL = $ReferenceToAzureOpenAIEndpoint.Value + 'openai/deployments/' + $ReferenceToAzureOpenAIDeploymentName.Value + '/chat/completions?api-version=' + $ReferenceToAzureOpenAIAPIVersion.Value
 
     # Retrieve the newest error on the stack prior to doing work
     $refLastKnownError = Get-ReferenceToLastError
 
-    # Store current error preference; we will restore it after we do the work of this
-    # function
+    # Store current error preference; we will restore it after we do the work of
+    # this function
     $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
 
-    # Set ErrorActionPreference to SilentlyContinue; this will suppress error output.
-    # Terminating errors will not output anything, kick to the empty trap statement and
-    # then continue on. Likewise, non-terminating errors will also not output anything,
-    # but they do not kick to the trap statement; they simply continue on.
+    # Set ErrorActionPreference to SilentlyContinue; this will suppress error
+    # output. Terminating errors will not output anything, kick to the empty trap
+    # statement and then continue on. Likewise, non-terminating errors will also
+    # not output anything, but they do not kick to the trap statement; they simply
+    # continue on.
     $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
-    # Call the OpenAI Chat Completions API to retrieve the response
-    $PSCustomObjectResponse = Invoke-RestMethod @params -TimeoutSec 180 -DisableKeepAlive
+
+    # Call the Azure OpenAI API to retrieve the chat response
+    $PSCustomObjectResponse = Invoke-RestMethod -Uri $strURL -Headers $hashtableAzureOpenAIHeaders -Method Post -Body $strJSONRequestBody -ContentType 'application/json' -TimeoutSec 180 -DisableKeepAlive
 
     # Restore the former error preference
     $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
@@ -1259,17 +1585,17 @@ function Get-SingleChatGPTResponseRobust {
     # Retrieve the newest error on the error stack
     $refNewestCurrentError = Get-ReferenceToLastError
 
-    if (Test-ErrorOccurred $refLastKnownError $refNewestCurrentError) {
+    if (Test-ErrorOccurred -ReferenceToEarlierError $refLastKnownError -ReferenceToLaterError $refNewestCurrentError) {
         # Error occurred
-        if ($intCurrentAttemptNumber -lt $intMaximumAttempts) {
-            Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, ($args[1]))) + " seconds, then retrying...")
-            Start-Sleep -Seconds ([math]::Pow(2, $intCurrentAttemptNumber))
+        if ($CurrentAttemptNumber -lt $MaxAttempts) {
+            Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, $CurrentAttemptNumber)) + " seconds, then retrying...")
+            Start-Sleep -Seconds ([math]::Pow(2, $CurrentAttemptNumber))
 
-            $objResultIndicator = Get-SingleChatGPTResponseRobust $refOutput ($intCurrentAttemptNumber + 1) $intMaximumAttempts $refStrGPTAPIKey $refStrGPTModel $doubleTemperature $refStrTextToSend
+            $objResultIndicator = Get-AzureOpenAISingleChatResponseRobust -ReferenceToResponse $ReferenceToResponse -CurrentAttemptNumber ($CurrentAttemptNumber + 1) -MaxAttempts $MaxAttempts -ReferenceToAzureOpenAIEndpoint $ReferenceToAzureOpenAIEndpoint -ReferenceToAzureOpenAIDeploymentName $ReferenceToAzureOpenAIDeploymentName -ReferenceToAPIKey $ReferenceToAPIKey -ReferenceToPrompt $ReferenceToPrompt -ReferenceToAzureOpenAIAPIVersion $ReferenceToAzureOpenAIAPIVersion -PSVersion $refPSVersion.Value
             return $objResultIndicator
         } else {
             # Number of attempts exceeded maximum
-            if ($intMaximumAttempts -ge 2) {
+            if ($MaxAttempts -ge 2) {
                 Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
             } else {
                 Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
@@ -1279,83 +1605,106 @@ function Get-SingleChatGPTResponseRobust {
         }
     } else {
         # No error occurred
+        $boolChatResponseReturned = $false
+        if (-not [string]::IsNullOrEmpty(@($PSCustomObjectResponse.choices)[0].message.content)) {
+            # A chat response was returned
+            $boolChatResponseReturned = $true
+        }
 
-        if ([string]::IsNullOrEmpty($PSCustomObjectResponse.choices[0].message.content.Trim()) -eq $true) {
-            # Blank/empty response - treat as error
-            if ($intCurrentAttemptNumber -lt $intMaximumAttempts) {
-                Write-Verbose ("A blank/empty response was returned while " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, ($args[1]))) + " seconds, then retrying...")
-                Start-Sleep -Seconds ([math]::Pow(2, $intCurrentAttemptNumber))
+        if (-not $boolChatResponseReturned) {
+            if ($CurrentAttemptNumber -lt $MaxAttempts) {
+                Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, $CurrentAttemptNumber)) + " seconds, then retrying...")
+                Start-Sleep -Seconds ([math]::Pow(2, $CurrentAttemptNumber))
 
-                $objResultIndicator = Get-SingleChatGPTResponseRobust $refOutput ($intCurrentAttemptNumber + 1) $intMaximumAttempts $refStrGPTAPIKey $refStrGPTModel $doubleTemperature $refStrTextToSend
+                $objResultIndicator = Get-AzureOpenAISingleChatResponseRobust -ReferenceToResponse $ReferenceToResponse -CurrentAttemptNumber ($CurrentAttemptNumber + 1) -MaxAttempts $MaxAttempts -ReferenceToAzureOpenAIEndpoint $ReferenceToAzureOpenAIEndpoint -ReferenceToAzureOpenAIDeploymentName $ReferenceToAzureOpenAIDeploymentName -ReferenceToAPIKey $ReferenceToAPIKey -ReferenceToPrompt $ReferenceToPrompt -ReferenceToAzureOpenAIAPIVersion $ReferenceToAzureOpenAIAPIVersion -PSVersion $refPSVersion.Value
                 return $objResultIndicator
             } else {
                 # Number of attempts exceeded maximum
-                if ($intMaximumAttempts -ge 2) {
-                    Write-Verbose ("A blank/empty response was returned while " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
+                if ($MaxAttempts -ge 2) {
+                    Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
                 } else {
-                    Write-Verbose ("A blank/empty response was returned while " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
+                    Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
                 }
 
                 return $false
             }
         } else {
-            # Non-blank response
-            # Return data by reference:
-            $refOutput.Value = $PSCustomObjectResponse.choices[0].message.content.Trim()
-
-            # Return success indicator:
+            # A chat response was returned successfully!
+            $ReferenceToResponse.Value = @($PSCustomObjectResponse.choices)[0].message.content.Trim()
             return $true
         }
     }
 }
 
-function Get-SingleChatGPTResponse {
-    # Get-SingleChatGPTResponse
-    # Version: 1.0.20240327.0
+function Get-SingleAzureOpenAIChatResponse {
+    # Get-SingleAzureOpenAIChatResponse
+    # Version: 1.0.20250412.0
 
     <#
     .SYNOPSIS
-    Sends text to ChatGPT and retrieves a response.
+    This function submits text (a prompt) to Azure OpenAI and returns the chat
+    response
 
     .DESCRIPTION
-    This function sends text to ChatGPT and retrieves a response. The function is
-    designed to be used in conjunction with the OpenAI ChatGPT API.
+    This function submits text (a prompt) to Azure OpenAI and returns the chat
+    response. The function also includes parameters to customize the Azure OpenAI
+    endpoint, deployment name, API key, and other settings. The function is
+    designed to be used in Windows PowerShell 3 and later versions.
 
     .PARAMETER MaximumAttempts
     Specifies the maximum number of attempts that the function will observe before
     giving up. The default value is 8.
 
-    .PARAMETER OpenAIAPIKey
-    A string containing a valid OpenAI API key that the function will use to
-    communicate with the OpenAI API.
+    .PARAMETER AzureOpenAIEndpoint
+    A string containing the endpoint for the Azure OpenAI service. The endpoint
+    should be in the format 'https://<resource-name>.openai.azure.com/' where
+    <resource-name> is the name of the Azure OpenAI resource. The endpoint must
+    include the 'https://' prefix, the '.openai.azure.com' suffix, and the trailing
+    slash.
 
-    .PARAMETER Model
-    Specifies the name of the GPT model that the function will use to generate the
-    response. The default value is 'gpt-4-turbo-preview'.
+    .PARAMETER AzureOpenAIDeploymentName
+    A string that specifies the deployment name in the Azure OpenAI service instance
+    that represents the chat response model to be used. The model deployments can be
+    viewed in Azure AI Foundry. To view the model deployments, go to
+    https://ai.azure.com/resource/deployments, then verify that the correct Azure
+    OpenAI instance is selected at the top. The model deployments are listed in the
+    middle pane. For this parameter, supply the name of the deployment that
+    represents the chat response model to be used. The deployment name is case-
+    sensitive.
 
-    .PARAMETER Temperature
-    Specifies the temperature to use when generating the response. A value of 0 is the
-    most deterministic, while a value greater than 0 introduces randomness. The maximum
-    value is 1.0. The default value is 0.2.
+    .PARAMETER AzureOpenAIAPIKey
+    A string containing a valid Azure OpenAI API key that the function will use to
+    communicate with the Azure OpenAI API.
+
+    .PARAMETER AzureOpenAIAPIVersion
+    A string that specifies the API version to use when connecting to the Azure OpenAI
+    service. The API version is supplied in YYYY-MM-DD format, and, if this parameter
+    is omitted, the script defaults to version 2024-12-01-preview. The latest GA API
+    version can be viewed here:
+    https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation?source=recommendations#latest-ga-api-release
 
     .PARAMETER Prompt
-    Specifies the text that the function will send to ChatGPT.
+    Specifies the text that the function will send to Azure OpenAI's chat completions
+    API.
+
+    .PARAMETER PSVersion
+    This parameter is optional; if supplied, it is a System.Version object that
+    contains the version of PowerShell that is running. If this parameter is
+    omitted, the function will determine the version of PowerShell that is
+    currently running. This parameter is used to determine whether the script is
+    running on a supported version of PowerShell.
 
     .EXAMPLE
-    PS C:\> $strResponse = Get-SingleChatGPTResponse -MaximumAttempts 3 -OpenAIAPIKey 'YOURAPIKEYHERE' -Model 'gpt-4-turbo-preview' -Temperature 0.2 -Prompt 'In as few words as possible (certainly no more than 1-3 words), describe the topic, main idea, or theme of the following four texts, treated as a set. Each text is separated by three forward slashes (///): I would really like to be able to work out during the work day but there are no showers at my office.///Having exercise equipment in the building is great!///Someone stole my iPad from the exercise room and the building manager is not doing anything about it.///Can we work out during our lunch break? I know some people do it, but I''m not sure it''s permitted. Can leadership make an announcement about this?'
-
-    This example sends text to ChatGPT and retrieves a response. The function will make
-    up to 3 attempts to retrieve a response. The function will use the
-    'gpt-4-turbo-preview' model to generate the response. The temperature will be set
-    to 0.2. The text that will be sent to ChatGPT is specified in the -Prompt
-    parameter.
+    PS C:\> $strResponse = Get-SingleAzureOpenAIChatResponse -MaximumAttempts 3 -AzureOpenAIEndpoint 'https://my-openai-resource.openai.azure.com/' -AzureOpenAIDeploymentName 'gpt-4-turbo-preview' -AzureOpenAIAPIKey 'my-api-key' -AzureOpenAIAPIVersion '2024-12-01-preview' -Prompt 'What is the capital of France?'
+    PS C:\> $strResponse
 
     .OUTPUTS
-    The function returns a string containing the response from ChatGPT.
+    The function returns a string containing the response from Azure OpenAI's chat
+    completions API
     #>
 
     #region License ############################################################
-    # Copyright 2024 Frank Lesniak and Daniel Stutz
+    # Copyright 2025 Frank Lesniak and Daniel Stutz
     #
     # Permission is hereby granted, free of charge, to any person obtaining a copy
     # of this software and associated documentation files (the "Software"), to deal
@@ -1380,14 +1729,16 @@ function Get-SingleChatGPTResponse {
     [OutputType([string])]
     param (
         [Parameter(Mandatory = $false)][ValidateRange(1, 10)][int]$MaximumAttempts = 8,
-        [Parameter(Mandatory = $true)][string]$OpenAIAPIKey,
-        [Parameter(Mandatory = $false)][string]$Model = 'gpt-4o',
-        [Parameter(Mandatory = $false)][ValidateRange(0, 1)][double]$Temperature = 0.2,
-        [Parameter(Mandatory = $true)][string]$Prompt
+        [Parameter(Mandatory = $true)][string]$AzureOpenAIEndpoint,
+        [Parameter(Mandatory = $true)][string]$AzureOpenAIDeploymentName,
+        [Parameter(Mandatory = $true)][string]$AzureOpenAIAPIKey,
+        [Parameter(Mandatory = $false)][string]$AzureOpenAIAPIVersion = '2024-12-01-preview',
+        [Parameter(Mandatory = $true)][string]$Prompt,
+        [Parameter(Mandatory = $false)][version]$PSVersion = ([version]'0.0')
     )
 
     $strResponse = ''
-    $boolSuccess = Get-SingleChatGPTResponseRobust ([ref]$strResponse) 1 $MaximumAttempts ([ref]$OpenAIAPIKey) ([ref]$Model) $Temperature ([ref]$Prompt)
+    $boolSuccess = Get-AzureOpenAISingleChatResponseRobust -ReferenceToResponse ([ref]$strResponse) -CurrentAttemptNumber 1 -MaxAttempts $MaximumAttempts -ReferenceToAzureOpenAIEndpoint ([ref]$AzureOpenAIEndpoint) -ReferenceToAzureOpenAIDeploymentName ([ref]$AzureOpenAIDeploymentName) -ReferenceToAPIKey ([ref]$AzureOpenAIAPIKey) -ReferenceToPrompt ([ref]$Prompt) -ReferenceToAzureOpenAIAPIVersion ([ref]$AzureOpenAIAPIVersion) -PSVersion $PSVersion
     if ($boolSuccess -eq $true) {
         return $strResponse
     } else {
@@ -1395,39 +1746,61 @@ function Get-SingleChatGPTResponse {
     }
 }
 
-function Get-TopicFromDataSet {
-    # Get-TopicFromDataSet
-    # Version: 1.0.20240327.0
+function Get-TopicFromDataSetUsingAzureOpenAI {
+    # Get-TopicFromDataSetUsingAzureOpenAI
+    # Version: 1.0.20250412.0
 
     <#
     .SYNOPSIS
-    Uses OpenAI/ChatGPT to generate a topic for a set of unstructured text data.
+    Uses Azure OpenAI to generate a topic for a set of unstructured text data.
 
     .DESCRIPTION
-    This function uses OpenAI/ChatGPT to generate a topic for a set of unstructured
-    text data. The function is designed to be used in conjunction with the OpenAI
-    ChatGPT API.
+    This function uses Azure OpenAI to generate a topic for a set of unstructured
+    text data. The function is designed to be used in conjunction with the Azure OpenAI
+    chat completions API.
 
     .PARAMETER MaximumAttempts
     Specifies the maximum number of attempts that the function will observe before
     giving up. The default value is 8.
 
-    .PARAMETER OpenAIAPIKey
-    A string containing a valid OpenAI API key that the function will use to
-    communicate with the OpenAI API.
+    .PARAMETER AzureOpenAIEndpoint
+    A string containing the endpoint for the Azure OpenAI service. The endpoint
+    should be in the format 'https://<resource-name>.openai.azure.com/' where
+    <resource-name> is the name of the Azure OpenAI resource. The endpoint must
+    include the 'https://' prefix, the '.openai.azure.com' suffix, and the trailing
+    slash.
 
-    .PARAMETER Model
-    Specifies the name of the GPT model that the function will use to generate the
-    response. The default value is 'gpt-4-turbo-preview'.
+    .PARAMETER AzureOpenAIDeploymentName
+    A string that specifies the deployment name in the Azure OpenAI service instance
+    that represents the chat response model to be used. The model deployments can be
+    viewed in Azure AI Foundry. To view the model deployments, go to
+    https://ai.azure.com/resource/deployments, then verify that the correct Azure
+    OpenAI instance is selected at the top. The model deployments are listed in the
+    middle pane. For this parameter, supply the name of the deployment that
+    represents the chat response model to be used. The deployment name is case-
+    sensitive.
 
-    .PARAMETER Temperature
-    Specifies the temperature to use when generating the response. A value of 0 is the
-    most deterministic, while a value greater than 0 introduces randomness. The maximum
-    value is 1.0. The default value is 0.2.
+    .PARAMETER AzureOpenAIAPIKey
+    A string containing a valid Azure OpenAI API key that the function will use to
+    communicate with the Azure OpenAI API.
+
+    .PARAMETER AzureOpenAIAPIVersion
+    A string that specifies the API version to use when connecting to the Azure OpenAI
+    service. The API version is supplied in YYYY-MM-DD format, and, if this parameter
+    is omitted, the script defaults to version 2024-12-01-preview. The latest GA API
+    version can be viewed here:
+    https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation?source=recommendations#latest-ga-api-release
 
     .PARAMETER ReferenceToArrayOfUnstructuredTextData
     A reference to an array of strings containing the unstructured text data that the
-    function will use in its prompt to ChatGPT to generate the topic.
+    function will use in its prompt to Azure OpenAI to generate the topic.
+
+    .PARAMETER PSVersion
+    This parameter is optional; if supplied, it is a System.Version object that
+    contains the version of PowerShell that is running. If this parameter is
+    omitted, the function will determine the version of PowerShell that is
+    currently running. This parameter is used to determine whether the script is
+    running on a supported version of PowerShell.
 
     .EXAMPLE
     PS C:\> $arrTexts = @()
@@ -1435,20 +1808,18 @@ function Get-TopicFromDataSet {
     PS C:\> $arrTexts += 'Having exercise equipment in the building is great!'
     PS C:\> $arrTexts += 'Someone stole my iPad from the exercise room and the building manager is not doing anything about it.'
     PS C:\> $arrTexts += 'Can we work out during our lunch break? I know some people do it, but I''m not sure it''s permitted. Can leadership make an announcement about this?'
-    PS C:\> $strTopic = Get-TopicFromDataSet -MaximumAttempts 3 -OpenAIAPIKey 'YOURAPIKEYHERE' -Model 'gpt-4-turbo-preview' -Temperature 0.2 -ReferenceToArrayOfUnstructuredTextData ([ref]$arrTexts)
+    PS C:\> $strTopic = Get-TopicFromDataSetUsingAzureOpenAI -MaximumAttempts 3 -AzureOpenAIEndpoint 'https://my-openai-resource.openai.azure.com/' -AzureOpenAIDeploymentName 'gpt-4-turbo-preview' -AzureOpenAIAPIKey 'my-api-key' -AzureOpenAIAPIVersion '2024-12-01-preview' -ReferenceToArrayOfUnstructuredTextData ([ref]$arrTexts)
 
     This example generates a topic for a set of unstructured text data. The function
-    will make up to 3 attempts to retrieve a response. The function will use the
-    'gpt-4-turbo-preview' model to generate the response. The temperature will be set
-    to 0.2. The unstructured text data is specified in the
-    -ReferenceToArrayOfUnstructuredTextData parameter.
+    will make up to 3 attempts to retrieve a response.  The unstructured text data is
+    specified in the -ReferenceToArrayOfUnstructuredTextData parameter.
 
     .OUTPUTS
-    The function returns a string containing the topic generated by ChatGPT.
+    The function returns a string containing the topic generated by Azure OpenAI.
     #>
 
     #region License ############################################################
-    # Copyright 2024 Frank Lesniak and Daniel Stutz
+    # Copyright 2025 Frank Lesniak and Daniel Stutz
     #
     # Permission is hereby granted, free of charge, to any person obtaining a copy
     # of this software and associated documentation files (the "Software"), to deal
@@ -1473,10 +1844,12 @@ function Get-TopicFromDataSet {
     [OutputType([string])]
     param (
         [Parameter(Mandatory = $false)][ValidateRange(1, 10)][int]$MaximumAttempts = 8,
-        [Parameter(Mandatory = $true)][string]$OpenAIAPIKey,
-        [Parameter(Mandatory = $false)][string]$Model = 'gpt-4o',
-        [Parameter(Mandatory = $false)][ValidateRange(0, 1)][double]$Temperature = 0.2,
-        [Parameter(Mandatory = $true)][ref]$ReferenceToArrayOfUnstructuredTextData
+        [Parameter(Mandatory = $true)][string]$AzureOpenAIEndpoint,
+        [Parameter(Mandatory = $true)][string]$AzureOpenAIDeploymentName,
+        [Parameter(Mandatory = $true)][string]$AzureOpenAIAPIKey,
+        [Parameter(Mandatory = $false)][string]$AzureOpenAIAPIVersion = '2024-12-01-preview',
+        [Parameter(Mandatory = $true)][ref]$ReferenceToArrayOfUnstructuredTextData,
+        [Parameter(Mandatory = $false)][version]$PSVersion = ([version]'0.0')
     )
 
     $intCountOfItems = @($ReferenceToArrayOfUnstructuredTextData.Value).Count
@@ -1564,8 +1937,17 @@ function Get-TopicFromDataSet {
         $strPrompt += @($ReferenceToArrayOfUnstructuredTextData.Value) -join $strSeparator
     }
 
-    $strTopic = Get-SingleChatGPTResponse -MaximumAttempts $MaximumAttempts -OpenAIAPIKey $OpenAIAPIKey -Model $Model -Temperature $Temperature -Prompt $strPrompt
+    $strTopic = Get-SingleAzureOpenAIChatResponse -MaximumAttempts $MaximumAttempts -AzureOpenAIEndpoint $AzureOpenAIEndpoint -AzureOpenAIDeploymentName $AzureOpenAIDeploymentName -AzureOpenAIAPIKey $AzureOpenAIAPIKey -AzureOpenAIAPIVersion $AzureOpenAIAPIVersion -Prompt $strPrompt -PSVersion $PSVersion
 
+    # Remove quotation marks (") from the beginning and end of the string, if they
+    # exist. Also include the "fancy" quotation marks like [char]8220 (“) and
+    # [char]8221 (”) and [char]8222 („)
+    $strTopic = $strTopic.Trim('"', [char]8220, [char]8221, [char]8222)
+
+    # Remove a trailing period from the end of the string
+    if ($strTopic.EndsWith('.')) {
+        $strTopic = $strTopic.Substring(0, $strTopic.Length - 1)
+    }
     return $strTopic
 }
 
@@ -3578,13 +3960,6 @@ if ((Test-Path -Path $UnstructuredTextDataInputCSVPath -PathType Leaf) -eq $fals
     return # Quit script
 }
 
-# Make sure the temperature is between 0 and 1
-if ($Temperature -lt 0 -or $Temperature -gt 1) {
-    Write-Warning 'The temperature must be between 0 and 1.'
-    return # Quit script
-}
-$doubleTemperature = $Temperature
-
 #region Check for required PowerShell Modules ######################################
 $hashtableModuleNameToInstalledModules = @{}
 $hashtableModuleNameToInstalledModules.Add('Az.Accounts', @())
@@ -3740,7 +4115,7 @@ for ($intRowIndex = 0; $intRowIndex -lt $intTotalItems; $intRowIndex++) {
         $refIndexOfMostRepresentativeItemInCluster = [ref]((($arrClusterMetadataCSV[$intRowIndex]).PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' -and $_.Name -eq $ClusterMetadataFieldNameIndexToMostRepresentativeItem }).Value)
         $refUnstructuredTextData = [ref]((($arrUnstructuredTextDataCSV[$refIndexOfMostRepresentativeItemInCluster.Value]).PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' -and $_.Name -eq $UnstructuredTextDataFieldNameContainingTextData }).Value)
         # Write-Host $refUnstructuredTextData.Value
-        $strTopicOfMostRepresentativeItem = Get-TopicFromDataSet -OpenAIAPIKey $strAPIKey -ReferenceToArrayOfUnstructuredTextData ([ref]@($refUnstructuredTextData.Value))
+        $strTopicOfMostRepresentativeItem = Get-TopicFromDataSetUsingAzureOpenAI -AzureOpenAIEndpoint $AzureOpenAIEndpoint -AzureOpenAIDeploymentName $AzureOpenAIDeploymentName -AzureOpenAIAPIKey $strAPIKey -AzureOpenAIAPIVersion $AzureOpenAIAPIVersion -ReferenceToArrayOfUnstructuredTextData ([ref]@($refUnstructuredTextData.Value))
 
         $psobjectUpdated | Add-Member -MemberType NoteProperty -Name $OutputDataFieldNameForTopicFromMostRepresentativeItem -Value $strTopicOfMostRepresentativeItem
     }
@@ -3760,7 +4135,7 @@ for ($intRowIndex = 0; $intRowIndex -lt $intTotalItems; $intRowIndex++) {
             $arrTexts += (($arrUnstructuredTextDataCSV[$intIndex]).PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' -and $_.Name -eq $UnstructuredTextDataFieldNameContainingTextData }).Value
         }
 
-        $strTopicOfNMostRepresentativeItems = Get-TopicFromDataSet -OpenAIAPIKey $strAPIKey -ReferenceToArrayOfUnstructuredTextData ([ref]$arrTexts)
+        $strTopicOfNMostRepresentativeItems = Get-TopicFromDataSetUsingAzureOpenAI -AzureOpenAIEndpoint $AzureOpenAIEndpoint -AzureOpenAIDeploymentName $AzureOpenAIDeploymentName -AzureOpenAIAPIKey $strAPIKey -AzureOpenAIAPIVersion $AzureOpenAIAPIVersion -ReferenceToArrayOfUnstructuredTextData ([ref]$arrTexts)
 
         $psobjectUpdated | Add-Member -MemberType NoteProperty -Name $OutputDataFieldNameForTopicFromNMostRepresentativeItems -Value $strTopicOfNMostRepresentativeItems
     }
@@ -3798,7 +4173,7 @@ for ($intRowIndex = 0; $intRowIndex -lt $intTotalItems; $intRowIndex++) {
             $arrTexts += (($arrUnstructuredTextDataCSV[$intIndex]).PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' -and $_.Name -eq $UnstructuredTextDataFieldNameContainingTextData }).Value
         }
 
-        $strTopicOfAllItems = Get-TopicFromDataSet -OpenAIAPIKey $strAPIKey -ReferenceToArrayOfUnstructuredTextData ([ref]$arrTexts)
+        $strTopicOfAllItems = Get-TopicFromDataSetUsingAzureOpenAI -OpenAIAPIKey $strAPIKey -ReferenceToArrayOfUnstructuredTextData ([ref]$arrTexts)
 
         $psobjectUpdated | Add-Member -MemberType NoteProperty -Name $OutputDataFieldNameForTopicFromAllItemsInCluster -Value $strTopicOfAllItems
     }
