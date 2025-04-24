@@ -1,5 +1,5 @@
 # Get-TopicForEachClusterUsingAzureOpenAI.ps1
-# Version: 1.1.20250412.0
+# Version: 1.1.20250424.0
 
 <#
 .SYNOPSIS
@@ -1125,7 +1125,7 @@ function Get-AzureOpenAISingleChatResponseRobust {
     # process completed successfully; $false means there was an error.
     #
     # .NOTES
-    # Version: 2.0.20250410.0
+    # Version: 2.0.20250424.0
 
     #region License ############################################################
     # Copyright (c) 2025 Frank Lesniak and Daniel Stutz
@@ -1588,7 +1588,7 @@ function Get-AzureOpenAISingleChatResponseRobust {
     if (Test-ErrorOccurred -ReferenceToEarlierError $refLastKnownError -ReferenceToLaterError $refNewestCurrentError) {
         # Error occurred
         if ($CurrentAttemptNumber -lt $MaxAttempts) {
-            Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, $CurrentAttemptNumber)) + " seconds, then retrying...")
+            Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". The error was: '" + @($Error)[0].Exception.Message + "'. Waiting for " + [string]([math]::Pow(2, $CurrentAttemptNumber)) + " seconds, then retrying...")
             Start-Sleep -Seconds ([math]::Pow(2, $CurrentAttemptNumber))
 
             $objResultIndicator = Get-AzureOpenAISingleChatResponseRobust -ReferenceToResponse $ReferenceToResponse -CurrentAttemptNumber ($CurrentAttemptNumber + 1) -MaxAttempts $MaxAttempts -ReferenceToAzureOpenAIEndpoint $ReferenceToAzureOpenAIEndpoint -ReferenceToAzureOpenAIDeploymentName $ReferenceToAzureOpenAIDeploymentName -ReferenceToAPIKey $ReferenceToAPIKey -ReferenceToPrompt $ReferenceToPrompt -ReferenceToAzureOpenAIAPIVersion $ReferenceToAzureOpenAIAPIVersion -PSVersion $refPSVersion.Value
@@ -1596,9 +1596,9 @@ function Get-AzureOpenAISingleChatResponseRobust {
         } else {
             # Number of attempts exceeded maximum
             if ($MaxAttempts -ge 2) {
-                Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
+                Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". The error was: '" + @($Error)[0].Exception.Message + "'. Giving up after too many attempts!")
             } else {
-                Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
+                Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". The error was: '" + @($Error)[0].Exception.Message + "'.")
             }
 
             return $false
@@ -1613,7 +1613,7 @@ function Get-AzureOpenAISingleChatResponseRobust {
 
         if (-not $boolChatResponseReturned) {
             if ($CurrentAttemptNumber -lt $MaxAttempts) {
-                Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Waiting for " + [string]([math]::Pow(2, $CurrentAttemptNumber)) + " seconds, then retrying...")
+                Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". The error was: '" + @($Error)[0].Exception.Message + "'. Waiting for " + [string]([math]::Pow(2, $CurrentAttemptNumber)) + " seconds, then retrying...")
                 Start-Sleep -Seconds ([math]::Pow(2, $CurrentAttemptNumber))
 
                 $objResultIndicator = Get-AzureOpenAISingleChatResponseRobust -ReferenceToResponse $ReferenceToResponse -CurrentAttemptNumber ($CurrentAttemptNumber + 1) -MaxAttempts $MaxAttempts -ReferenceToAzureOpenAIEndpoint $ReferenceToAzureOpenAIEndpoint -ReferenceToAzureOpenAIDeploymentName $ReferenceToAzureOpenAIDeploymentName -ReferenceToAPIKey $ReferenceToAPIKey -ReferenceToPrompt $ReferenceToPrompt -ReferenceToAzureOpenAIAPIVersion $ReferenceToAzureOpenAIAPIVersion -PSVersion $refPSVersion.Value
@@ -1621,9 +1621,9 @@ function Get-AzureOpenAISingleChatResponseRobust {
             } else {
                 # Number of attempts exceeded maximum
                 if ($MaxAttempts -ge 2) {
-                    Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". Giving up after too many attempts!")
+                    Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". The error was: '" + @($Error)[0].Exception.Message + "'. Giving up after too many attempts!")
                 } else {
-                    Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ".")
+                    Write-Verbose ("An error occurred " + $strDescriptionOfWhatWeAreDoingInThisFunction + ". The error was: '" + @($Error)[0].Exception.Message + "'.")
                 }
 
                 return $false
